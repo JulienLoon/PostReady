@@ -25,15 +25,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
             color="STANDOUT"
         )
 
-        # --- Separator line ---
-        self.add(
-            npyscreen.FixedText,
-            value="─" * (self.columns - 2),
-            editable=False,
-            rely=1,
-            relx=1
-        )
-
         # --- Subtitle / hint ---
         self.add(
             npyscreen.FixedText,
