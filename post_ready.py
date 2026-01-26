@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# PostReady v2.4 - System Preparation Tool
+# PostReady v2.6 - System Preparation Tool
 # Author: Julian Loontjens
 # Date: 2026-01-26
 #
@@ -16,6 +16,10 @@ from pathlib import Path
 
 # --- CONFIGURATIE ---
 LOG_FILE = "/var/log/postready.log"
+# [TOEGEVOEGD] MOTD Instellingen
+MOTD_REPO = "https://github.com/JulienLoon/julianloontjens-motd.git"
+MOTD_TARGET_DIR = "/etc/essentials/julianloontjens-motd"
+MOTD_SCRIPT_PATH = os.path.join(MOTD_TARGET_DIR, "install.sh")
 
 # Setup Logging
 logging.basicConfig(
@@ -28,7 +32,7 @@ logging.basicConfig(
 class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
         # --- 1. DE HOOFDTITEL (Bovenin) ---
-        title = "PostReady v2.4 - System Operations"
+        title = "PostReady v2.6 - System Operations"
         center_x_title = int((self.columns - len(title)) / 2)
         
         self.add(
@@ -84,6 +88,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
         # Startpositie content bepalen
         row = current_y + 4
+
+        # [TOEGEVOEGD] --- SECTIE: FEATURES ---
+        self.add(npyscreen.FixedText, value="[ FEATURES ]", rely=row, relx=2, color="LABEL")
+        row += 1
+        self.chk_motd = self.add(npyscreen.Checkbox, name="Install/Update Custom MOTD", value=True, rely=row, relx=4)
+        row += 2
 
         # --- SECTIE: CLEANUP & SYSPREP ---
         self.add(npyscreen.FixedText, value="[ CLEANUP / SYSPREP ]", rely=row, relx=2, color="LABEL")
@@ -192,12 +202,58 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.exec_cleanup()
         self.exec_network()
         self.exec_system()
+        # [TOEGEVOEGD] MOTD als laatste uitvoeren
+        self.exec_motd()
 
         logging.info("--- BATCH OPERATIONS COMPLETED ---")
         npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
         self.on_exit()
 
     # --- LOGICA ---
+
+    # [TOEGEVOEGD] MOTD Functie met Smart Check/Update
+    def exec_motd(self):
+        if not self.chk_motd.value:
+            return
+        
+        logging.info("--- STARTING MOTD INSTALLATION ---")
+        
+        # 1. Zorg dat parent folder bestaat
+        parent_dir = os.path.dirname(MOTD_TARGET_DIR)
+        if not os.path.exists(parent_dir):
+            logging.info(f"Creating directory: {parent_dir}")
+            os.makedirs(parent_dir, exist_ok=True)
+
+        # 2. Check: Bestaat de MOTD map al?
+        if os.path.exists(MOTD_TARGET_DIR):
+            if os.path.isdir(os.path.join(MOTD_TARGET_DIR, ".git")):
+                logging.info("MOTD already installed. Checking for updates (git pull)...")
+                cwd = os.getcwd()
+                os.chdir(MOTD_TARGET_DIR)
+                if self.run_cmd("git pull"):
+                    logging.info("MOTD updated successfully.")
+                else:
+                    logging.warning("Failed to update MOTD (git pull).")
+                os.chdir(cwd)
+            else:
+                logging.warning("Directory exists but is not a git repo. Skipping update.")
+        else:
+            logging.info(f"Cloning {MOTD_REPO}...")
+            if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
+                logging.error("Failed to clone MOTD repo.")
+                return
+
+        # 3. Run Install Script
+        if os.path.exists(MOTD_SCRIPT_PATH):
+            logging.info(f"Running MOTD installer: {MOTD_SCRIPT_PATH}")
+            os.chmod(MOTD_SCRIPT_PATH, 0o755)
+            cwd = os.getcwd()
+            os.chdir(MOTD_TARGET_DIR)
+            self.run_cmd(f"./install.sh")
+            os.chdir(cwd)
+        else:
+            logging.error(f"install.sh not found at {MOTD_SCRIPT_PATH}")
+
     def exec_cleanup(self):
         if self.chk_history.value:
             self.run_cmd("history -c && history -w")
@@ -283,6 +339,27 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.info(f"Creating user: {user}")
                 self.run_cmd(f"useradd -m -s /bin/bash {user}")
                 self.run_cmd(f"usermod -aG sudo {user}")
+
+            # [TOEGEVOEGD] Sudoers file aanmaken voor deze user (ook als hij al bestond)
+            # Dit zorgt dat de user 'install.sh' mag draaien zonder wachtwoord
+            sudoers_file = f"/etc/sudoers.d/{user}"
+            sudo_rule = f"{user} ALL=(root) NOPASSWD: {MOTD_SCRIPT_PATH}\n"
+            
+            logging.info(f"Checking sudoers permissions for: {user}")
+            try:
+                needs_update = True
+                if os.path.exists(sudoers_file):
+                    with open(sudoers_file, 'r') as f:
+                        if f.read() == sudo_rule:
+                            needs_update = False
+                
+                if needs_update:
+                    with open(sudoers_file, "w") as f:
+                        f.write(sudo_rule)
+                    os.chmod(sudoers_file, 0o440) # Belangrijk: permissions
+                    logging.info(f"Sudoers file created/updated: {sudoers_file}")
+            except Exception as e:
+                logging.error(f"Failed to configure sudoers: {e}")
 
 class PostReadyApp(npyscreen.NPSAppManaged):
     def onStart(self):
