@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
-# PostReady v2.2 - System Preparation Tool
-# Author: Julian Loontjens (Refactored for Production)
+# PostReady v2.3 - System Preparation Tool
+# Author: Julian Loontjens
 # Date: 2026-01-26
 #
 
@@ -17,7 +17,7 @@ from pathlib import Path
 # --- CONFIGURATIE ---
 LOG_FILE = "/var/log/postready.log"
 
-# Setup Logging: Strak formaat, geen AI-praat, puur systeemstatus.
+# Setup Logging
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
@@ -27,14 +27,52 @@ logging.basicConfig(
 
 class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
-        # Header
-        title = "PostReady v2.2 - System Ops"
-        center_x = int((self.columns - len(title)) / 2)
+        # --- ASCII ART HEADER ---
+        # "PostReady" in 'Big' font
+        logo_lines = [
+            r" ____           _   ____                _       ",
+            r"|  _ \ ___  ___| |_|  _ \ ___  __ _  __| |_   _ ",
+            r"| |_) / _ \/ __| __| |_) / _ \/ _` |/ _` | | | |",
+            r"|  __/ (_) \__ \ |_|  _ <  __/ (_| | (_| | |_| |",
+            r"|_|   \___/|___/\__|_| \_\___|\__,_|\__,_|\__, |",
+            r"                                          |___/ "
+        ]
         
-        self.add(npyscreen.FixedText, value=title, editable=False, rely=0, relx=center_x, color="STANDOUT")
-        self.add(npyscreen.FixedText, value=f"Log output: {LOG_FILE}", editable=False, rely=1, relx=2, color="WARNING")
+        subtitle = "by Julian Loontjens"
 
-        row = 3
+        # Logo tekenen (Centreren & Kleur: GOOD = Groen/Terminal vibe)
+        current_y = 1
+        for line in logo_lines:
+            center_x = int((self.columns - len(line)) / 2)
+            # Zorg dat we niet buiten beeld tekenen
+            if center_x < 0: center_x = 0
+            
+            self.add(
+                npyscreen.FixedText,
+                value=line,
+                editable=False,
+                rely=current_y,
+                relx=center_x,
+                color="GOOD"  # Dit geeft de groene 'hacker' kleur
+            )
+            current_y += 1
+
+        # Subtitle tekenen (Centreren & Kleur: DEFAULT of WARNING)
+        center_sub = int((self.columns - len(subtitle)) / 2)
+        self.add(
+            npyscreen.FixedText,
+            value=subtitle,
+            editable=False,
+            rely=current_y, # Direct onder het logo
+            relx=center_sub,
+            color="CcCyan" # Of 'DEFAULT' voor wit, 'WARNING' voor geel
+        )
+
+        # Log file info iets lager zetten
+        self.add(npyscreen.FixedText, value=f"Log output: {LOG_FILE}", editable=False, rely=current_y + 2, relx=2, color="WARNING")
+
+        # Startpositie voor de rest van de content (rekening houdend met logo hoogte)
+        row = current_y + 4
 
         # --- SECTIE: CLEANUP & SYSPREP ---
         self.add(npyscreen.FixedText, value="[ CLEANUP / SYSPREP ]", rely=row, relx=2, color="LABEL")
@@ -114,7 +152,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
         return bool(pattern.match(ip_input))
 
     def run_cmd(self, command, shell=True):
-        """Voert commando uit en logt resultaat (INFO bij succes, ERROR bij falen)."""
         logging.info(f"CMD_EXEC: {command}")
         try:
             subprocess.run(command, shell=shell, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -124,7 +161,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
             return False
 
     def on_start(self):
-        # --- VALIDATIE ---
         if not self.chk_dhcp.value:
             if not all([self.field_ip.value, self.field_gw.value, self.field_dns.value]):
                 npyscreen.notify_confirm("Static IP requires: IP, Gateway, DNS.", title="Validation Error")
@@ -142,7 +178,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
         logging.info("--- STARTING BATCH OPERATIONS ---")
         npyscreen.notify("Executing tasks... Please wait.", title="Working")
         
-        # Voer modules uit
         self.exec_cleanup()
         self.exec_network()
         self.exec_system()
@@ -165,10 +200,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
             for log_file in Path("/var/log").rglob("*.log"):
-                try: 
-                    log_file.write_text("")
-                except PermissionError: 
-                    logging.warning(f"Permission denied: {log_file}")
+                try: log_file.write_text("")
+                except PermissionError: logging.warning(f"Permission denied: {log_file}")
             self.run_cmd("find /var/log -type f -name '*.[0-9]*' -delete")
 
         if self.chk_apt.value:
@@ -206,7 +239,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
             logging.info(f"Mode: Static IP {ip} on {self.detected_iface}")
 
         try:
-            # Backup
             backup_dir = Path("/etc/netplan/backup")
             backup_dir.mkdir(exist_ok=True)
             for f in Path("/etc/netplan").glob("*.yaml"):
@@ -214,7 +246,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     shutil.move(str(f), str(backup_dir / f.name))
                     logging.info(f"Backed up {f.name}")
 
-            # Write & Apply
             Path(netplan_file).write_text(content)
             os.chmod(netplan_file, 0o600)
             
@@ -222,7 +253,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.info("Netplan applied successfully")
             else:
                 logging.error("Netplan apply failed")
-                
         except Exception as e:
             logging.error(f"Network configuration exception: {e}")
 
@@ -237,7 +267,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             user = self.field_user.value
             try:
                 subprocess.run(f"id -u {user}", shell=True, check=True, stdout=subprocess.DEVNULL)
-                logging.info(f"User {user} already exists. Skipping creation.")
+                logging.info(f"User {user} already exists.")
             except subprocess.CalledProcessError:
                 logging.info(f"Creating user: {user}")
                 self.run_cmd(f"useradd -m -s /bin/bash {user}")
@@ -248,14 +278,11 @@ class PostReadyApp(npyscreen.NPSAppManaged):
         self.addForm("MAIN", PostReadyForm)
 
 if __name__ == "__main__":
-    # Check root privileges
     if os.geteuid() != 0:
         print("ERROR: Root privileges required. Run with sudo.")
         sys.exit(1)
 
-    # Init Log
     logging.info("=== PostReady Application Started ===")
-
     try:
         PostReadyApp().run()
         logging.info("=== PostReady Application Ended Normally ===")
@@ -266,5 +293,5 @@ if __name__ == "__main__":
         except: os._exit(0)
     except Exception as e:
         logging.critical(f"FATAL EXCEPTION: {e}", exc_info=True)
-        print(f"\n[ERROR] Fatal crash. See {LOG_FILE} for stack trace.")
+        print(f"\n[ERROR] Fatal crash. See {LOG_FILE} for details.")
         sys.exit(1)
