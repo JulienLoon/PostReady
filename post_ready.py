@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# PostReady v2.3 - System Preparation Tool
+# PostReady v2.4 - System Preparation Tool
 # Author: Julian Loontjens
 # Date: 2026-01-26
 #
@@ -27,8 +27,20 @@ logging.basicConfig(
 
 class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
-        # --- ASCII ART HEADER ---
-        # "PostReady" in 'Big' font
+        # --- 1. DE HOOFDTITEL (Bovenin) ---
+        title = "PostReady v2.4 - System Operations"
+        center_x_title = int((self.columns - len(title)) / 2)
+        
+        self.add(
+            npyscreen.FixedText, 
+            value=title, 
+            editable=False, 
+            rely=0,              # Helemaal bovenaan
+            relx=center_x_title, 
+            color="STANDOUT"     # Opvallende balk
+        )
+
+        # --- 2. ASCII ART HEADER (Daaronder) ---
         logo_lines = [
             r" ____           _   ____                _       ",
             r"|  _ \ ___  ___| |_|  _ \ ___  __ _  __| |_   _ ",
@@ -40,11 +52,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
         
         subtitle = "by Julian Loontjens"
 
-        # Logo tekenen (Centreren & Kleur: GOOD = Groen/Terminal vibe)
-        current_y = 1
+        # ASCII Logo tekenen (Start op regel 2, zodat er witruimte onder de titel is)
+        current_y = 2 
         for line in logo_lines:
             center_x = int((self.columns - len(line)) / 2)
-            # Zorg dat we niet buiten beeld tekenen
             if center_x < 0: center_x = 0
             
             self.add(
@@ -53,25 +64,25 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 editable=False,
                 rely=current_y,
                 relx=center_x,
-                color="GOOD"  # Dit geeft de groene 'hacker' kleur
+                color="GOOD"  # Groen
             )
             current_y += 1
 
-        # Subtitle tekenen (Centreren & Kleur: DEFAULT of WARNING)
+        # Subtitle tekenen
         center_sub = int((self.columns - len(subtitle)) / 2)
         self.add(
             npyscreen.FixedText,
             value=subtitle,
             editable=False,
-            rely=current_y, # Direct onder het logo
+            rely=current_y,
             relx=center_sub,
-            color="CcCyan" # Of 'DEFAULT' voor wit, 'WARNING' voor geel
+            color="CcCyan" # Subtiel cyaan/blauw
         )
 
-        # Log file info iets lager zetten
+        # Log file info
         self.add(npyscreen.FixedText, value=f"Log output: {LOG_FILE}", editable=False, rely=current_y + 2, relx=2, color="WARNING")
 
-        # Startpositie voor de rest van de content (rekening houdend met logo hoogte)
+        # Startpositie content bepalen
         row = current_y + 4
 
         # --- SECTIE: CLEANUP & SYSPREP ---
@@ -186,7 +197,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
         self.on_exit()
 
-    # --- IMPLEMENTATIE LOGICA ---
+    # --- LOGICA ---
     def exec_cleanup(self):
         if self.chk_history.value:
             self.run_cmd("history -c && history -w")
