@@ -224,8 +224,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
             logging.info(f"Creating directory: {parent_dir}")
             os.makedirs(parent_dir, exist_ok=True)
 
-        # 2. Check: Bestaat de MOTD map al?
+        # 2. Check: Bestaat de map al?
         if os.path.exists(MOTD_TARGET_DIR):
+            # Situatie A: Het is een geldige git repo -> Updaten
             if os.path.isdir(os.path.join(MOTD_TARGET_DIR, ".git")):
                 logging.info("MOTD already installed. Checking for updates (git pull)...")
                 cwd = os.getcwd()
@@ -235,12 +236,27 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 else:
                     logging.warning("Failed to update MOTD (git pull).")
                 os.chdir(cwd)
+            
+            # Situatie B: Map bestaat wel, maar is GEEN git repo (Foute staat) -> Verwijderen en opnieuw clonen
             else:
-                logging.warning("Directory exists but is not a git repo. Skipping update.")
+                logging.warning(f"Directory {MOTD_TARGET_DIR} exists but is not a git repo. Cleaning up...")
+                try:
+                    shutil.rmtree(MOTD_TARGET_DIR) # Verwijder de 'foute' map
+                    logging.info("Cleaned up old directory. Re-cloning...")
+                    
+                    # Nu opnieuw clonen
+                    if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
+                        logging.error("Failed to clone MOTD repo after cleanup.")
+                        return
+                except OSError as e:
+                    logging.error(f"Could not remove existing directory: {e}")
+                    return
+
         else:
+            # Situatie C: Map bestaat nog niet -> Clonen
             logging.info(f"Cloning {MOTD_REPO}...")
             if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
-                logging.error("Failed to clone MOTD repo.")
+                logging.error("Failed to clone MOTD repo. Check URL!")
                 return
 
         # 3. Run Install Script
