@@ -5,26 +5,14 @@
 # Date: 2026-01-26
 #
 
+import npyscreen
 import subprocess
-import sys
-import os
-
-# [TOEGEVOEGD] Check & Install npyscreen automatisch (zodat script niet crasht op nieuwe server)
-try:
-    import npyscreen
-except ImportError:
-    print("⚠️  Library 'npyscreen' not found. Installing now...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "npyscreen"])
-        print("✅ Installed. Starting PostReady...")
-        import npyscreen
-    except Exception as e:
-        print(f"❌ FATAL: Could not install npyscreen. Run 'sudo apt install python3-pip' first.\nError: {e}")
-        sys.exit(1)
-
 import re
+import os
 import logging
 import shutil
+import sys
+import time
 from pathlib import Path
 
 # --- CONFIGURATIE ---
@@ -52,9 +40,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
             npyscreen.FixedText, 
             value=title, 
             editable=False, 
-            rely=0,              # Helemaal bovenaan
+            rely=0,
             relx=center_x_title, 
-            color="STANDOUT"     # Opvallende balk
+            color="STANDOUT"
         )
 
         # --- 2. ASCII ART HEADER (Daaronder) ---
@@ -69,7 +57,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
         
         subtitle = "by Julian Loontjens"
 
-        # ASCII Logo tekenen (Start op regel 2, zodat er witruimte onder de titel is)
         current_y = 2 
         for line in logo_lines:
             center_x = int((self.columns - len(line)) / 2)
@@ -81,11 +68,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 editable=False,
                 rely=current_y,
                 relx=center_x,
-                color="GOOD"  # Groen
+                color="GOOD"
             )
             current_y += 1
 
-        # Subtitle tekenen
         center_sub = int((self.columns - len(subtitle)) / 2)
         self.add(
             npyscreen.FixedText,
@@ -93,13 +79,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
             editable=False,
             rely=current_y,
             relx=center_sub,
-            color="CcCyan" # Subtiel cyaan/blauw
+            color="CcCyan"
         )
 
-        # Log file info
         self.add(npyscreen.FixedText, value=f"Log output: {LOG_FILE}", editable=False, rely=current_y + 2, relx=2, color="WARNING")
 
-        # Startpositie content bepalen
         row = current_y + 4
 
         # [TOEGEVOEGD] --- SECTIE: FEATURES ---
@@ -188,11 +172,26 @@ class PostReadyForm(npyscreen.FormBaseNew):
     def run_cmd(self, command, shell=True):
         logging.info(f"CMD_EXEC: {command}")
         try:
-            subprocess.run(command, shell=shell, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(command, shell=shell, check=True)
             return True
         except subprocess.CalledProcessError as e:
-            logging.error(f"CMD_FAIL: {command} | Return Code: {e.returncode}")
+            logging.error(f"CMD_FAIL: {command} | RC={e.returncode}")
             return False
+
+    def wait_for_network(self, timeout=20):
+        logging.info("Waiting for network connectivity...")
+        for i in range(timeout):
+            if subprocess.run(
+                "getent hosts github.com",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            ).returncode == 0:
+                logging.info("Network & DNS ready.")
+                return True
+            time.sleep(1)
+        logging.error("Network not ready after timeout.")
+        return False
 
     def on_start(self):
         if not self.chk_dhcp.value:
@@ -214,9 +213,17 @@ class PostReadyForm(npyscreen.FormBaseNew):
         
         self.exec_cleanup()
         self.exec_network()
+
+        # FIX 1: Wacht tot netwerk & DNS stabiel is voordat MOTD
+        if not self.wait_for_network():
+            npyscreen.notify_confirm(
+                "Network not ready yet.\nSkipping MOTD installation.",
+                title="Warning"
+            )
+        else:
+            self.exec_motd()
+
         self.exec_system()
-        # [TOEGEVOEGD] MOTD als laatste uitvoeren
-        self.exec_motd()
 
         logging.info("--- BATCH OPERATIONS COMPLETED ---")
         npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
@@ -224,11 +231,16 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     # --- LOGICA ---
 
-    # [AANGEPAST] MOTD Functie met FIX voor 'Permission denied' en juiste doelmap
+    # [TOEGEVOEGD] MOTD Functie met Smart Check/Update
     def exec_motd(self):
         if not self.chk_motd.value:
             return
-        
+
+        # FIX 2: Controleer of git aanwezig is
+        if not shutil.which("git"):
+            logging.info("Git not found. Installing...")
+            self.run_cmd("apt-get update && apt-get install -y git ca-certificates")
+
         logging.info("--- STARTING MOTD INSTALLATION ---")
         
         # 1. Zorg dat de hoofdmap (/etc/essentials) correct is
@@ -242,38 +254,32 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.error(f"CRITICAL: Could not create {parent_dir}: {e}")
                 return
         
-        # [FIX] Dwing rechten af op de hoofdmap (voor het geval ze fout staan)
         try:
-            os.chmod(parent_dir, 0o755) # Iedereen mag lezen/execute, root mag schrijven
+            os.chmod(parent_dir, 0o755)
             shutil.chown(parent_dir, user="root", group="root")
         except Exception as e:
             logging.warning(f"Could not enforce permissions on {parent_dir}: {e}")
 
         # 2. Check de doelmap
         if os.path.exists(MOTD_TARGET_DIR):
-            # Check of het een git repo is
             if os.path.isdir(os.path.join(MOTD_TARGET_DIR, ".git")):
                 logging.info("MOTD found. Updating...")
                 cwd = os.getcwd()
                 os.chdir(MOTD_TARGET_DIR)
-                # We proberen te pullen
-                if not self.run_cmd("git pull"):
+                if not self.run_cmd("sudo git pull"):
                     logging.warning("Git pull failed. Re-cloning entire repo...")
                     os.chdir(cwd)
-                    shutil.rmtree(MOTD_TARGET_DIR) # Harde reset
-                    self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
+                    shutil.rmtree(MOTD_TARGET_DIR)
+                    self.run_cmd(f"sudo git clone {MOTD_REPO}")
                 else:
                     os.chdir(cwd)
             else:
-                # Map bestaat maar is geen git repo (of corrupt) -> Weggooien
                 logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
                 shutil.rmtree(MOTD_TARGET_DIR)
-                self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
+                self.run_cmd(f"sudo git clone {MOTD_REPO}")
         else:
-            # Map bestaat nog niet -> Clonen
             logging.info(f"Cloning {MOTD_REPO}...")
-            # [CRUCIALE FIX] MOTD_TARGET_DIR toegevoegd zodat hij niet in de huidige map cloned!
-            if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
+            if not self.run_cmd(f"sudo git clone {MOTD_REPO}"):
                 logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
@@ -377,8 +383,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 self.run_cmd(f"useradd -m -s /bin/bash {user}")
                 self.run_cmd(f"usermod -aG sudo {user}")
 
-            # [TOEGEVOEGD] Sudoers file aanmaken voor deze user (ook als hij al bestond)
-            # Dit zorgt dat de user 'install.sh' mag draaien zonder wachtwoord
             sudoers_file = f"/etc/sudoers.d/{user}"
             sudo_rule = f"{user} ALL=(root) NOPASSWD: {MOTD_SCRIPT_PATH}\n"
             
@@ -393,7 +397,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 if needs_update:
                     with open(sudoers_file, "w") as f:
                         f.write(sudo_rule)
-                    os.chmod(sudoers_file, 0o440) # Belangrijk: permissions
+                    os.chmod(sudoers_file, 0o440)
                     logging.info(f"Sudoers file created/updated: {sudoers_file}")
             except Exception as e:
                 logging.error(f"Failed to configure sudoers: {e}")
