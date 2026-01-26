@@ -218,58 +218,65 @@ class PostReadyForm(npyscreen.FormBaseNew):
         
         logging.info("--- STARTING MOTD INSTALLATION ---")
         
-        # 1. Zorg dat parent folder bestaat
+        # 1. Zorg dat de hoofdmap (/etc/essentials) correct is
         parent_dir = os.path.dirname(MOTD_TARGET_DIR)
+        
         if not os.path.exists(parent_dir):
             logging.info(f"Creating directory: {parent_dir}")
-            os.makedirs(parent_dir, exist_ok=True)
+            try:
+                os.makedirs(parent_dir, exist_ok=True)
+            except OSError as e:
+                logging.error(f"CRITICAL: Could not create {parent_dir}: {e}")
+                return
+        
+        # [FIX] Dwing rechten af op de hoofdmap (voor het geval ze fout staan)
+        try:
+            os.chmod(parent_dir, 0o755) # Iedereen mag lezen/execute, root mag schrijven
+            shutil.chown(parent_dir, user="root", group="root")
+        except Exception as e:
+            logging.warning(f"Could not enforce permissions on {parent_dir}: {e}")
 
-        # 2. Check: Bestaat de map al?
+        # 2. Check de doelmap
         if os.path.exists(MOTD_TARGET_DIR):
-            # Situatie A: Het is een geldige git repo -> Updaten
+            # Check of het een git repo is
             if os.path.isdir(os.path.join(MOTD_TARGET_DIR, ".git")):
-                logging.info("MOTD already installed. Checking for updates (git pull)...")
+                logging.info("MOTD found. Updating...")
                 cwd = os.getcwd()
                 os.chdir(MOTD_TARGET_DIR)
-                if self.run_cmd("git pull"):
-                    logging.info("MOTD updated successfully.")
+                # We proberen te pullen. Lukt dat niet? Dan is er iets goed mis -> weggooien die hap.
+                if not self.run_cmd("git pull"):
+                    logging.warning("Git pull failed. Re-cloning entire repo...")
+                    os.chdir(cwd)
+                    shutil.rmtree(MOTD_TARGET_DIR) # Harde reset
+                    self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
                 else:
-                    logging.warning("Failed to update MOTD (git pull).")
-                os.chdir(cwd)
-            
-            # Situatie B: Map bestaat wel, maar is GEEN git repo (Foute staat) -> Verwijderen en opnieuw clonen
+                    os.chdir(cwd)
             else:
-                logging.warning(f"Directory {MOTD_TARGET_DIR} exists but is not a git repo. Cleaning up...")
-                try:
-                    shutil.rmtree(MOTD_TARGET_DIR) # Verwijder de 'foute' map
-                    logging.info("Cleaned up old directory. Re-cloning...")
-                    
-                    # Nu opnieuw clonen
-                    if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
-                        logging.error("Failed to clone MOTD repo after cleanup.")
-                        return
-                except OSError as e:
-                    logging.error(f"Could not remove existing directory: {e}")
-                    return
-
+                # Map bestaat maar is geen git repo (of corrupt) -> Weggooien
+                logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
+                shutil.rmtree(MOTD_TARGET_DIR)
+                self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
         else:
-            # Situatie C: Map bestaat nog niet -> Clonen
+            # Map bestaat nog niet -> Clonen
             logging.info(f"Cloning {MOTD_REPO}...")
             if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
-                logging.error("Failed to clone MOTD repo. Check URL!")
+                logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
         # 3. Run Install Script
         if os.path.exists(MOTD_SCRIPT_PATH):
             logging.info(f"Running MOTD installer: {MOTD_SCRIPT_PATH}")
-            os.chmod(MOTD_SCRIPT_PATH, 0o755)
-            cwd = os.getcwd()
-            os.chdir(MOTD_TARGET_DIR)
-            self.run_cmd(f"./install.sh")
-            os.chdir(cwd)
+            try:
+                os.chmod(MOTD_SCRIPT_PATH, 0o755)
+                cwd = os.getcwd()
+                os.chdir(MOTD_TARGET_DIR)
+                self.run_cmd(f"./install.sh")
+                os.chdir(cwd)
+            except Exception as e:
+                logging.error(f"Error executing install.sh: {e}")
         else:
             logging.error(f"install.sh not found at {MOTD_SCRIPT_PATH}")
-
+            
     def exec_cleanup(self):
         if self.chk_history.value:
             self.run_cmd("history -c && history -w")
