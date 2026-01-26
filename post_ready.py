@@ -244,22 +244,22 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 cwd = os.getcwd()
                 os.chdir(MOTD_TARGET_DIR)
                 # We proberen te pullen. Lukt dat niet? Dan is er iets goed mis -> weggooien die hap.
-                if not self.run_cmd("git pull"):
+                if not self.run_cmd("sudo git pull"):
                     logging.warning("Git pull failed. Re-cloning entire repo...")
                     os.chdir(cwd)
                     shutil.rmtree(MOTD_TARGET_DIR) # Harde reset
-                    self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
+                    self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
                 else:
                     os.chdir(cwd)
             else:
                 # Map bestaat maar is geen git repo (of corrupt) -> Weggooien
                 logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
                 shutil.rmtree(MOTD_TARGET_DIR)
-                self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
+                self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
         else:
             # Map bestaat nog niet -> Clonen
             logging.info(f"Cloning {MOTD_REPO}...")
-            if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
+            if not self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
                 logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
@@ -276,7 +276,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.error(f"Error executing install.sh: {e}")
         else:
             logging.error(f"install.sh not found at {MOTD_SCRIPT_PATH}")
-            
+
     def exec_cleanup(self):
         if self.chk_history.value:
             self.run_cmd("history -c && history -w")
