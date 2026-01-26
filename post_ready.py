@@ -248,18 +248,18 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     logging.warning("Git pull failed. Re-cloning entire repo...")
                     os.chdir(cwd)
                     shutil.rmtree(MOTD_TARGET_DIR) # Harde reset
-                    self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
+                    self.run_cmd(f"sudo git clone {MOTD_REPO}")
                 else:
                     os.chdir(cwd)
             else:
                 # Map bestaat maar is geen git repo (of corrupt) -> Weggooien
                 logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
                 shutil.rmtree(MOTD_TARGET_DIR)
-                self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
+                self.run_cmd(f"sudo git clone {MOTD_REPO}")
         else:
             # Map bestaat nog niet -> Clonen
             logging.info(f"Cloning {MOTD_REPO}...")
-            if not self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
+            if not self.run_cmd(f"sudo git clone {MOTD_REPO}"):
                 logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
