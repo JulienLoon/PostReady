@@ -5,13 +5,26 @@
 # Date: 2026-01-26
 #
 
-import npyscreen
 import subprocess
-import re
+import sys
 import os
+
+# [TOEGEVOEGD] Check & Install npyscreen automatisch (zodat script niet crasht op nieuwe server)
+try:
+    import npyscreen
+except ImportError:
+    print("⚠️  Library 'npyscreen' not found. Installing now...")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "npyscreen"])
+        print("✅ Installed. Starting PostReady...")
+        import npyscreen
+    except Exception as e:
+        print(f"❌ FATAL: Could not install npyscreen. Run 'sudo apt install python3-pip' first.\nError: {e}")
+        sys.exit(1)
+
+import re
 import logging
 import shutil
-import sys
 from pathlib import Path
 
 # --- CONFIGURATIE ---
@@ -211,7 +224,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     # --- LOGICA ---
 
-    # [TOEGEVOEGD] MOTD Functie met Smart Check/Update
+    # [AANGEPAST] MOTD Functie met FIX voor 'Permission denied' en juiste doelmap
     def exec_motd(self):
         if not self.chk_motd.value:
             return
@@ -243,23 +256,24 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.info("MOTD found. Updating...")
                 cwd = os.getcwd()
                 os.chdir(MOTD_TARGET_DIR)
-                # We proberen te pullen. Lukt dat niet? Dan is er iets goed mis -> weggooien die hap.
-                if not self.run_cmd("sudo git pull"):
+                # We proberen te pullen
+                if not self.run_cmd("git pull"):
                     logging.warning("Git pull failed. Re-cloning entire repo...")
                     os.chdir(cwd)
                     shutil.rmtree(MOTD_TARGET_DIR) # Harde reset
-                    self.run_cmd(f"sudo git clone {MOTD_REPO}")
+                    self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
                 else:
                     os.chdir(cwd)
             else:
                 # Map bestaat maar is geen git repo (of corrupt) -> Weggooien
                 logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
                 shutil.rmtree(MOTD_TARGET_DIR)
-                self.run_cmd(f"sudo git clone {MOTD_REPO}")
+                self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
         else:
             # Map bestaat nog niet -> Clonen
             logging.info(f"Cloning {MOTD_REPO}...")
-            if not self.run_cmd(f"sudo git clone {MOTD_REPO}"):
+            # [CRUCIALE FIX] MOTD_TARGET_DIR toegevoegd zodat hij niet in de huidige map cloned!
+            if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
                 logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
