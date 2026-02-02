@@ -33,7 +33,7 @@ logging.basicConfig(
 class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
         # --- 1. DE HOOFDTITEL (Bovenin) ---
-        title = "PostReady v2.6 - System Operations"
+        title = "PostReady v2.6 - System Preparation Tool"
         center_x_title = int((self.columns - len(title)) / 2)
         
         self.add(
@@ -270,28 +270,26 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     logging.warning("Git pull failed. Re-cloning entire repo...")
                     os.chdir(cwd)
                     shutil.rmtree(MOTD_TARGET_DIR)
-                    self.run_cmd(f"sudo git clone {MOTD_REPO}")
+                    self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
                 else:
                     os.chdir(cwd)
             else:
                 logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
                 shutil.rmtree(MOTD_TARGET_DIR)
-                self.run_cmd(f"sudo git clone {MOTD_REPO}")
+                self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
         else:
             logging.info(f"Cloning {MOTD_REPO}...")
-            if not self.run_cmd(f"sudo git clone {MOTD_REPO}"):
+            if not self.run_cmd(f"sudo git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
                 logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
-        # 3. Run Install Script
+        # 3. Run Install Script met --non-interactive flag
         if os.path.exists(MOTD_SCRIPT_PATH):
             logging.info(f"Running MOTD installer: {MOTD_SCRIPT_PATH}")
             try:
                 os.chmod(MOTD_SCRIPT_PATH, 0o755)
-                cwd = os.getcwd()
-                os.chdir(MOTD_TARGET_DIR)
-                self.run_cmd(f"./install.sh")
-                os.chdir(cwd)
+                # GEFIXED: Gebruik absoluut pad + --non-interactive flag
+                self.run_cmd(f"{MOTD_SCRIPT_PATH} --non-interactive")
             except Exception as e:
                 logging.error(f"Error executing install.sh: {e}")
         else:
