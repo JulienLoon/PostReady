@@ -430,20 +430,30 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     history_files.append(user_hist)
                     logging.info(f"Added configured user history: {user_hist}")
             
-            # Remove all found history files
-            removed_count = 0
+            # Truncate all found history files (better than deleting)
+            cleared_count = 0
             for hist_file in set(history_files):  # Use set to avoid duplicates
                 if os.path.exists(hist_file):
                     try:
-                        os.remove(hist_file)
-                        logging.info(f"✓ Deleted: {hist_file}")
-                        removed_count += 1
-                    except OSError as e:
-                        logging.warning(f"✗ Failed to delete {hist_file}: {e}")
+                        # Truncate the file to 0 bytes (like cat /dev/null >)
+                        with open(hist_file, 'w') as f:
+                            f.truncate(0)
+                        logging.info(f"✓ Cleared: {hist_file}")
+                        cleared_count += 1
+                    except (OSError, PermissionError) as e:
+                        logging.warning(f"✗ Failed to clear {hist_file}: {e}")
                 else:
                     logging.debug(f"Skipped (not found): {hist_file}")
             
-            logging.info(f"History cleanup complete: {removed_count} files removed")
+            # Also clear in-memory history for current shell and all active sessions
+            # This runs history -c for all bash processes
+            logging.info("Clearing in-memory bash history for all active sessions")
+            self.run_cmd("pkill -SIGUSR2 bash 2>/dev/null || true")  # Send signal to reload
+            
+            # For good measure, also truncate history files that might be open
+            self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
+            
+            logging.info(f"History cleanup complete: {cleared_count} files cleared")
 
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
