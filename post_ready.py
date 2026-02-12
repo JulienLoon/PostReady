@@ -153,7 +153,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def on_exit(self):
         """Properly exit the application"""
-        logging.info("User requested exit via GUI.")
+        if not npyscreen.notify_yes_no("Are you sure you want to exit?", title="Confirm Exit", editw=1):
+            logging.info("User cancelled exit.")
+            return
+        
+        logging.info("User confirmed exit via GUI.")
         self.parentApp.switchForm(None)
         self.editing = False
         self.parentApp.switchFormNow()
@@ -508,6 +512,10 @@ if __name__ == "__main__":
     try:
         PostReadyApp().run()
         logging.info("=== PostReady Application Ended Normally ===")
+        print("\n" + "="*50)
+        print("  See you next time!")
+        print("  - Julian Loontjens")
+        print("="*50 + "\n")
     except KeyboardInterrupt:
         logging.warning("User interrupted process (SIGINT/Ctrl+C)")
         print("\n[WARNING] Process terminated by user.")
