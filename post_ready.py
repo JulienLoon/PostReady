@@ -326,38 +326,63 @@ class PostReadyForm(npyscreen.FormBaseNew):
             logging.error(f"install.sh not found at {MOTD_SCRIPT_PATH}")
 
     def exec_motd_uninstall(self):
-        """Uninstall MOTD"""
+        """Uninstall MOTD by restoring the latest backup"""
         if not self.chk_motd_uninstall.value:
             return
 
         logging.info("--- STARTING MOTD UNINSTALLATION ---")
         
-        if not os.path.exists(MOTD_TARGET_DIR):
-            logging.warning("MOTD directory not found. Nothing to uninstall.")
+        motd_dir = Path("/etc/update-motd.d")
+        backup_parent = Path("/etc")
+        
+        # Find all backup directories
+        backup_dirs = sorted(
+            [d for d in backup_parent.glob("update-motd.d.backup-*") if d.is_dir()],
+            key=lambda x: x.name,
+            reverse=True  # Most recent first
+        )
+        
+        if not backup_dirs:
+            logging.warning("No MOTD backups found. Cannot restore.")
+            npyscreen.notify_confirm(
+                "No MOTD backups found!\nCannot restore previous state.",
+                title="Warning"
+            )
             return
-
-        # Run uninstall script if it exists
-        if os.path.exists(MOTD_UNINSTALL_PATH):
-            logging.info(f"Running MOTD uninstaller: {MOTD_UNINSTALL_PATH}")
-            try:
-                os.chmod(MOTD_UNINSTALL_PATH, 0o755)
-                cwd = os.getcwd()
-                os.chdir(MOTD_TARGET_DIR)
-                self.run_cmd("./uninstall.sh")
-                os.chdir(cwd)
-            except Exception as e:
-                logging.error(f"Error executing uninstall.sh: {e}")
-        else:
-            logging.warning(f"uninstall.sh not found at {MOTD_UNINSTALL_PATH}")
-
-        # Remove MOTD directory
-        logging.info(f"Removing MOTD directory: {MOTD_TARGET_DIR}")
+        
+        latest_backup = backup_dirs[0]
+        logging.info(f"Found {len(backup_dirs)} backup(s). Using latest: {latest_backup.name}")
+        
         try:
-            shutil.rmtree(MOTD_TARGET_DIR)
-            logging.info("MOTD directory removed successfully")
+            # Remove current MOTD directory
+            if motd_dir.exists():
+                logging.info(f"Removing current MOTD directory: {motd_dir}")
+                shutil.rmtree(motd_dir)
+            
+            # Restore from backup
+            logging.info(f"Restoring from backup: {latest_backup}")
+            shutil.copytree(latest_backup, motd_dir)
+            
+            # Set correct permissions
+            for script in motd_dir.glob("*"):
+                if script.is_file():
+                    os.chmod(script, 0o755)
+            
+            logging.info("MOTD restored successfully from backup")
+            
+            # Optional: Remove MOTD git repository
+            if os.path.exists(MOTD_TARGET_DIR):
+                logging.info(f"Removing MOTD repository: {MOTD_TARGET_DIR}")
+                shutil.rmtree(MOTD_TARGET_DIR)
+            
         except Exception as e:
-            logging.error(f"Failed to remove MOTD directory: {e}")
-
+            logging.error(f"Failed to restore MOTD backup: {e}")
+            npyscreen.notify_confirm(
+                f"Failed to restore MOTD backup:\n{str(e)}",
+                title="Error"
+            )
+            return
+        
         # Clean up sudoers entries if user exists
         if self.field_user.value:
             user = self.field_user.value
@@ -512,9 +537,10 @@ if __name__ == "__main__":
     try:
         PostReadyApp().run()
         logging.info("=== PostReady Application Ended Normally ===")
-        print("\n╔" + " PostReady ".center(48, "═") + "╗")
-        print(f"║ {'Goodbye, see you next time!':^46} ║")
-        print("╚" + "═" * 48 + "╝\n")
+        print("\n" + "="*50)
+        print("  See you next time!")
+        print("  - Julian Loontjens")
+        print("="*50 + "\n")
     except KeyboardInterrupt:
         logging.warning("User interrupted process (SIGINT/Ctrl+C)")
         print("\n[WARNING] Process terminated by user.")
