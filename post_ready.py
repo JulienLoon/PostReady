@@ -398,17 +398,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.warning(f"Could not remove repository directory: {e}")
 
     def exec_cleanup(self):
-        if self.chk_history.value:
-            logging.info("Clearing bash history for all users")
-            
-            # Truncate all .bash_history files
-            self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
-            
-            # Kill all bash sessions to force history flush
-            self.run_cmd("pkill -TERM bash 2>/dev/null || true")
-            
-            logging.info("History cleared and bash sessions terminated")
-
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
             # Truncate regular log files
@@ -501,6 +490,19 @@ class PostReadyForm(npyscreen.FormBaseNew):
                         logging.info(f"Removed {path}")
                     except Exception as e:
                         logging.warning(f"Could not remove {path}: {e}")
+
+        # DO HISTORY CLEANUP LAST so all other tasks complete first
+        if self.chk_history.value:
+            logging.info("Clearing bash history for all users")
+            
+            # Truncate all .bash_history files
+            self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
+            
+            # Kill all bash sessions - this will disconnect us but other tasks are done
+            logging.info("Terminating all bash sessions (this will disconnect you)...")
+            self.run_cmd("sleep 1 && pkill -9 bash 2>/dev/null || true")
+            
+            logging.info("History cleared and bash sessions will terminate")
 
     def exec_network(self):
         logging.info("Configuring Netplan")
