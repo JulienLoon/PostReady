@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 #
-# PostReady v2.7 - System Preparation Tool
+# PostReady v2.8 - System Preparation Tool
 # Author: Julian Loontjens
 # Date: 2026-02-12
+# Fixed: Ubuntu Server compatibility for cleanup operations
 #
 
 import npyscreen
@@ -34,7 +35,7 @@ logging.basicConfig(
 class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
         # --- 1. DE HOOFDTITEL (Bovenin) ---
-        title = "PostReady v2.7 - System Preparation Tool"
+        title = "PostReady v2.8 - System Preparation Tool"
         center_x_title = int((self.columns - len(title)) / 2)
         
         self.add(
@@ -385,49 +386,121 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def exec_cleanup(self):
         if self.chk_history.value:
-            self.run_cmd("history -c && history -w")
-            p = os.path.expanduser("~/.bash_history")
-            if os.path.exists(p):
-                try: 
-                    os.remove(p)
-                    logging.info(f"Deleted {p}")
-                except OSError as e: logging.error(f"Failed to delete {p}: {e}")
+            logging.info("Clearing bash history files")
+            # Clear history for root
+            history_files = [
+                "/root/.bash_history",
+                os.path.expanduser("~/.bash_history")
+            ]
+            
+            # Also clear for all users in /home
+            try:
+                for user_dir in Path("/home").iterdir():
+                    if user_dir.is_dir():
+                        history_files.append(str(user_dir / ".bash_history"))
+            except Exception as e:
+                logging.warning(f"Could not scan /home directory: {e}")
+            
+            for hist_file in history_files:
+                if os.path.exists(hist_file):
+                    try:
+                        os.remove(hist_file)
+                        logging.info(f"Deleted {hist_file}")
+                    except OSError as e:
+                        logging.warning(f"Failed to delete {hist_file}: {e}")
 
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
+            # Truncate regular log files
             for log_file in Path("/var/log").rglob("*.log"):
-                try: log_file.write_text("")
-                except PermissionError: logging.warning(f"Permission denied: {log_file}")
-            self.run_cmd("find /var/log -type f -name '*.[0-9]*' -delete")
+                try: 
+                    log_file.write_text("")
+                    logging.info(f"Truncated {log_file}")
+                except (PermissionError, OSError) as e: 
+                    logging.warning(f"Could not truncate {log_file}: {e}")
+            
+            # Remove rotated logs
+            self.run_cmd("find /var/log -type f -name '*.log.*' -delete")
+            self.run_cmd("find /var/log -type f -name '*.[0-9]' -delete")
+            self.run_cmd("find /var/log -type f -name '*.gz' -delete")
+            
+            # Clear journal logs
+            if os.path.exists("/var/log/journal"):
+                self.run_cmd("journalctl --vacuum-time=1s")
 
         if self.chk_apt.value:
-            self.run_cmd("apt-get clean && apt-get autoremove -y")
+            logging.info("Running APT cleanup")
+            self.run_cmd("apt-get clean")
+            self.run_cmd("apt-get autoremove -y --purge")
+            # Also clear apt cache
+            self.run_cmd("rm -rf /var/lib/apt/lists/*")
 
         if self.chk_update.value:
             logging.info("Running APT update and upgrade")
             self.run_cmd("apt-get update")
-            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'")
 
         if self.chk_ssh.value:
-            logging.info("Regenerating SSH keys")
+            logging.info("Regenerating SSH host keys")
+            # Remove old keys
             self.run_cmd("rm -f /etc/ssh/ssh_host_*")
-            self.run_cmd("dpkg-reconfigure -f noninteractive openssh-server")
+            
+            # Regenerate keys manually (more reliable than dpkg-reconfigure)
+            key_types = ["rsa", "ecdsa", "ed25519"]
+            for key_type in key_types:
+                key_file = f"/etc/ssh/ssh_host_{key_type}_key"
+                self.run_cmd(f"ssh-keygen -t {key_type} -f {key_file} -N '' -q")
+                logging.info(f"Generated {key_type} host key")
+            
+            # Restart SSH service to apply new keys
+            self.run_cmd("systemctl restart sshd || systemctl restart ssh")
 
         if self.chk_machineid.value:
             logging.info("Resetting machine-id")
             self.run_cmd("truncate -s 0 /etc/machine-id")
+            
             dbus_id = "/var/lib/dbus/machine-id"
-            if os.path.exists(dbus_id):
-                try: os.remove(dbus_id)
-                except OSError: pass
-            self.run_cmd("ln -sf /etc/machine-id /var/lib/dbus/machine-id")
+            if os.path.islink(dbus_id):
+                logging.info("D-Bus machine-id is already a symlink")
+            elif os.path.exists(dbus_id):
+                try:
+                    os.remove(dbus_id)
+                    self.run_cmd("ln -sf /etc/machine-id /var/lib/dbus/machine-id")
+                    logging.info("Linked D-Bus machine-id to /etc/machine-id")
+                except OSError as e:
+                    logging.warning(f"Could not link D-Bus machine-id: {e}")
+            else:
+                self.run_cmd("ln -sf /etc/machine-id /var/lib/dbus/machine-id")
 
         if self.chk_cloudinit.value:
             logging.info("Cleaning cloud-init for VM template preparation")
-            self.run_cmd("cloud-init clean --logs --seed")
-            self.run_cmd("rm -rf /var/lib/cloud/")
-            self.run_cmd("rm -rf /etc/cloud/cloud.cfg.d/99-installer.cfg")
-            self.run_cmd("rm -rf /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg")
+            
+            # Check if cloud-init is installed
+            if shutil.which("cloud-init"):
+                self.run_cmd("cloud-init clean --logs --seed")
+            else:
+                logging.warning("cloud-init not installed, skipping cloud-init clean command")
+            
+            # Remove cloud-init directories and files (even if cloud-init isn't installed)
+            cloud_paths = [
+                "/var/lib/cloud/",
+                "/etc/cloud/cloud.cfg.d/99-installer.cfg",
+                "/etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg",
+                "/var/log/cloud-init.log",
+                "/var/log/cloud-init-output.log"
+            ]
+            
+            for path in cloud_paths:
+                if os.path.exists(path):
+                    try:
+                        if os.path.isdir(path):
+                            shutil.rmtree(path)
+                        else:
+                            os.remove(path)
+                        logging.info(f"Removed {path}")
+                    except Exception as e:
+                        logging.warning(f"Could not remove {path}: {e}")
 
     def exec_network(self):
         logging.info("Configuring Netplan")
