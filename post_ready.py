@@ -112,6 +112,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.chk_machineid = self.add(npyscreen.Checkbox, name="Reset Machine-ID", value=False, rely=row, relx=4)
         row += 1
         self.chk_cloudinit = self.add(npyscreen.Checkbox, name="Clean Cloud-init (VM Template)", value=False, rely=row, relx=4)
+        row += 1
+        self.chk_shutdown = self.add(npyscreen.Checkbox, name="Shutdown when complete", value=False, rely=row, relx=4)
         row += 2
 
         # --- SECTIE: NETWORK ---
@@ -268,8 +270,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.exec_system()
 
         logging.info("--- BATCH OPERATIONS COMPLETED ---")
-        npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
-        self.on_exit()
+        
+        # Check if shutdown is requested
+        if self.chk_shutdown.value:
+            logging.info("Shutdown requested by user - initiating system shutdown")
+            npyscreen.notify_confirm("All tasks completed.\nSystem will shutdown in 5 seconds...", title="Shutting Down")
+            self.run_cmd("shutdown -h +0")
+        else:
+            npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
+            self.on_exit()
 
     # --- LOGICA ---
 
