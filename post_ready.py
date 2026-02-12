@@ -512,8 +512,10 @@ if __name__ == "__main__":
     try:
         PostReadyApp().run()
         logging.info("=== PostReady Application Ended Normally ===")
+        
         print("\n" + " PostReady ".center(50, "="))
-        print("  See you next time!")
+        # Gebruik f-string voor uitlijning met harde randen
+        print(f"= {'Goodbye, see you next time!':<47} =")
         print("="*50 + "\n")
     except KeyboardInterrupt:
         logging.warning("User interrupted process (SIGINT/Ctrl+C)")
