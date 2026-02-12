@@ -232,16 +232,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
         # Warning if bash history will be cleared
         if self.chk_history.value:
             if not npyscreen.notify_yes_no(
-                "WARNING: This will PERMANENTLY disable bash history:\n\n"
-                "• All .bash_history files will be cleared\n"
-                "• Files will be made immutable (chattr +i)\n"
-                "• History disabled in .bashrc files\n"
-                "• You must manually re-enable if needed\n\n"
-                "To re-enable later, run:\n"
-                "  chattr -i ~/.bash_history\n"
-                "  (and remove lines from .bashrc)\n\n"
+                "WARNING: Clearing history will terminate all bash sessions!\n\n"
+                "Your SSH connection will be closed.\n"
+                "The script will continue running.\n\n"
                 "Continue?",
-                title="⚠️  Permanent History Disable",
+                title="⚠️  Warning",
                 editw=1
             ):
                 logging.info("User cancelled due to history warning.")
@@ -404,112 +399,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def exec_cleanup(self):
         if self.chk_history.value:
-            logging.info("Clearing bash history files for all users")
-            history_files = []
+            logging.info("Clearing bash history for all users")
             
-            # Method 1: Clear for root
-            history_files.append("/root/.bash_history")
-            
-            # Method 2: Clear for all users in /home
-            try:
-                for user_dir in Path("/home").iterdir():
-                    if user_dir.is_dir():
-                        bash_hist = user_dir / ".bash_history"
-                        history_files.append(str(bash_hist))
-            except Exception as e:
-                logging.warning(f"Could not scan /home directory: {e}")
-            
-            # Method 3: Parse /etc/passwd for all real users (UID >= 1000)
-            try:
-                with open("/etc/passwd", "r") as passwd_file:
-                    for line in passwd_file:
-                        parts = line.strip().split(":")
-                        if len(parts) >= 7:
-                            username = parts[0]
-                            uid = int(parts[2])
-                            home_dir = parts[5]
-                            shell = parts[6]
-                            
-                            # Only process real users with bash/sh shells and UID >= 1000
-                            if uid >= 1000 and shell and ("bash" in shell or "sh" in shell):
-                                if home_dir and os.path.exists(home_dir):
-                                    bash_hist = os.path.join(home_dir, ".bash_history")
-                                    if bash_hist not in history_files:
-                                        history_files.append(bash_hist)
-                                        logging.info(f"Found user {username} with home {home_dir}")
-            except Exception as e:
-                logging.warning(f"Could not parse /etc/passwd: {e}")
-            
-            # Method 4: If a new user is configured, also target their history
-            if self.field_user.value:
-                user_home = f"/home/{self.field_user.value}"
-                user_hist = os.path.join(user_home, ".bash_history")
-                if user_hist not in history_files:
-                    history_files.append(user_hist)
-                    logging.info(f"Added configured user history: {user_hist}")
-            
-            # First, remove immutable attribute if set (from previous runs)
-            logging.info("Removing immutable attributes from history files...")
-            self.run_cmd("find /root /home -name '.bash_history' -type f -exec chattr -i {} \\; 2>/dev/null || true")
-            
-            # Truncate all found history files
-            logging.info("Truncating all .bash_history files...")
+            # Truncate all .bash_history files
             self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
             
-            # Also manually truncate known files
-            cleared_count = 0
-            for hist_file in set(history_files):  # Use set to avoid duplicates
-                if os.path.exists(hist_file):
-                    try:
-                        # Truncate the file to 0 bytes
-                        with open(hist_file, 'w') as f:
-                            f.truncate(0)
-                        logging.info(f"✓ Cleared: {hist_file}")
-                        cleared_count += 1
-                    except (OSError, PermissionError) as e:
-                        logging.warning(f"✗ Failed to clear {hist_file}: {e}")
+            # Kill all bash sessions to force history flush
+            self.run_cmd("pkill -TERM bash 2>/dev/null || true")
             
-            # Now make all history files immutable so bash can't write to them
-            logging.info("Making history files immutable to prevent bash from writing...")
-            self.run_cmd("find /root /home -name '.bash_history' -type f -exec chattr +i {} \\; 2>/dev/null || true")
-            
-            # Also set HISTFILE to /dev/null in bashrc files to prevent history saving
-            logging.info("Disabling history in shell configurations...")
-            bashrc_files = [
-                "/root/.bashrc",
-                "/etc/bash.bashrc",
-                "/etc/skel/.bashrc"
-            ]
-            
-            # Add bashrc for all users
-            try:
-                for user_dir in Path("/home").iterdir():
-                    if user_dir.is_dir():
-                        user_bashrc = user_dir / ".bashrc"
-                        if user_bashrc.exists():
-                            bashrc_files.append(str(user_bashrc))
-            except Exception as e:
-                logging.warning(f"Could not scan /home for bashrc files: {e}")
-            
-            # Add history disable to bashrc files
-            history_disable = "\n# PostReady: Disable bash history\nunset HISTFILE\nexport HISTSIZE=0\nexport HISTFILESIZE=0\n"
-            
-            for bashrc in set(bashrc_files):
-                if os.path.exists(bashrc):
-                    try:
-                        with open(bashrc, 'r') as f:
-                            content = f.read()
-                        
-                        # Only add if not already present
-                        if "PostReady: Disable bash history" not in content:
-                            with open(bashrc, 'a') as f:
-                                f.write(history_disable)
-                            logging.info(f"✓ Disabled history in: {bashrc}")
-                    except Exception as e:
-                        logging.warning(f"Could not modify {bashrc}: {e}")
-            
-            logging.info(f"History cleanup complete: {cleared_count} files cleared and made immutable")
-            logging.info("IMPORTANT: History files are now immutable. Run 'chattr -i ~/.bash_history' to re-enable.")
+            logging.info("History cleared and bash sessions terminated")
 
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
