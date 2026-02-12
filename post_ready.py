@@ -326,64 +326,45 @@ class PostReadyForm(npyscreen.FormBaseNew):
             logging.error(f"install.sh not found at {MOTD_SCRIPT_PATH}")
 
     def exec_motd_uninstall(self):
-        """Uninstall MOTD by restoring the latest backup"""
+        """Uninstall MOTD by running uninstall.sh"""
         if not self.chk_motd_uninstall.value:
             return
 
         logging.info("--- STARTING MOTD UNINSTALLATION ---")
         
-        motd_dir = Path("/etc/update-motd.d")
-        backup_parent = Path("/etc")
-        
-        # Find all backup directories
-        backup_dirs = sorted(
-            [d for d in backup_parent.glob("update-motd.d.backup-*") if d.is_dir()],
-            key=lambda x: x.name,
-            reverse=True  # Most recent first
-        )
-        
-        if not backup_dirs:
-            logging.warning("No MOTD backups found. Cannot restore.")
+        # Controleren of het uninstall script bestaat
+        if os.path.exists(MOTD_UNINSTALL_PATH):
+            logging.info(f"Running MOTD uninstaller: {MOTD_UNINSTALL_PATH}")
+            try:
+                # 1. Script uitvoerbaar maken
+                os.chmod(MOTD_UNINSTALL_PATH, 0o755)
+                
+                # 2. Huidige map onthouden en naar de target map gaan
+                cwd = os.getcwd()
+                os.chdir(MOTD_TARGET_DIR)
+                
+                # 3. Het script uitvoeren
+                if self.run_cmd("./uninstall.sh"):
+                    logging.info("MOTD uninstall script executed successfully")
+                    npyscreen.notify("MOTD removed via uninstall script.", title="Success")
+                else:
+                    logging.error("MOTD uninstall script failed")
+                    npyscreen.notify_confirm("Uninstall script returned an error.", title="Warning")
+                
+                # Terug naar oorspronkelijke map
+                os.chdir(cwd)
+
+            except Exception as e:
+                logging.error(f"Error executing uninstall.sh: {e}")
+                npyscreen.notify_confirm(f"Failed to run uninstall script:\n{str(e)}", title="Execution Error")
+        else:
+            logging.error(f"uninstall.sh not found at {MOTD_UNINSTALL_PATH}")
             npyscreen.notify_confirm(
-                "No MOTD backups found!\nCannot restore previous state.",
-                title="Warning"
-            )
-            return
-        
-        latest_backup = backup_dirs[0]
-        logging.info(f"Found {len(backup_dirs)} backup(s). Using latest: {latest_backup.name}")
-        
-        try:
-            # Remove current MOTD directory
-            if motd_dir.exists():
-                logging.info(f"Removing current MOTD directory: {motd_dir}")
-                shutil.rmtree(motd_dir)
-            
-            # Restore from backup
-            logging.info(f"Restoring from backup: {latest_backup}")
-            shutil.copytree(latest_backup, motd_dir)
-            
-            # Set correct permissions
-            for script in motd_dir.glob("*"):
-                if script.is_file():
-                    os.chmod(script, 0o755)
-            
-            logging.info("MOTD restored successfully from backup")
-            
-            # Optional: Remove MOTD git repository
-            if os.path.exists(MOTD_TARGET_DIR):
-                logging.info(f"Removing MOTD repository: {MOTD_TARGET_DIR}")
-                shutil.rmtree(MOTD_TARGET_DIR)
-            
-        except Exception as e:
-            logging.error(f"Failed to restore MOTD backup: {e}")
-            npyscreen.notify_confirm(
-                f"Failed to restore MOTD backup:\n{str(e)}",
+                f"File not found:\n{MOTD_UNINSTALL_PATH}\n\nCannot run uninstaller.",
                 title="Error"
             )
-            return
-        
-        # Clean up sudoers entries if user exists
+
+        # 4. Sudoers entry opschonen (Dit moet buiten het script om gebeuren omdat wij de user weten)
         if self.field_user.value:
             user = self.field_user.value
             sudoers_file = f"/etc/sudoers.d/{user}"
@@ -393,6 +374,14 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     logging.info(f"Removed sudoers file: {sudoers_file}")
                 except Exception as e:
                     logging.error(f"Failed to remove sudoers file: {e}")
+
+        # 5. De repository map zelf verwijderen (netjes opruimen na uninstall)
+        if os.path.exists(MOTD_TARGET_DIR):
+            logging.info(f"Removing MOTD repository directory: {MOTD_TARGET_DIR}")
+            try:
+                shutil.rmtree(MOTD_TARGET_DIR)
+            except Exception as e:
+                logging.warning(f"Could not remove repository directory: {e}")
 
     def exec_cleanup(self):
         if self.chk_history.value:
