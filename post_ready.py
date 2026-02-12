@@ -112,6 +112,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.chk_machineid = self.add(npyscreen.Checkbox, name="Reset Machine-ID", value=False, rely=row, relx=4)
         row += 1
         self.chk_cloudinit = self.add(npyscreen.Checkbox, name="Clean Cloud-init (VM Template)", value=False, rely=row, relx=4)
+        row += 1
+        self.chk_shutdown = self.add(npyscreen.Checkbox, name="Shutdown when complete", value=False, rely=row, relx=4)
         row += 2
 
         # --- SECTIE: NETWORK ---
@@ -249,6 +251,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
         logging.info("--- STARTING BATCH OPERATIONS ---")
         npyscreen.notify("Executing tasks... Please wait.", title="Working")
         
+        # IMPORTANT: Schedule shutdown FIRST if requested, before cleanup kills bash
+        if self.chk_shutdown.value:
+            logging.info("Shutdown requested - scheduling shutdown BEFORE cleanup")
+            self.run_cmd("shutdown -h +1")  # Schedule 1 minute from now
+            npyscreen.notify("Shutdown scheduled in 60 seconds...", title="Info")
+        
         self.exec_cleanup()
         self.exec_network()
 
@@ -268,7 +276,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.exec_system()
 
         logging.info("--- BATCH OPERATIONS COMPLETED ---")
-        npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
+        
+        if self.chk_shutdown.value:
+            npyscreen.notify_confirm("All tasks completed.\nSystem will shutdown soon.", title="Success")
+        else:
+            npyscreen.notify_confirm("Configuration applied successfully.\nA reboot is recommended.", title="Success")
+        
         self.on_exit()
 
     # --- LOGICA ---
@@ -416,13 +429,18 @@ class PostReadyForm(npyscreen.FormBaseNew):
             # Clear journal logs
             if os.path.exists("/var/log/journal"):
                 self.run_cmd("journalctl --vacuum-time=1s")
+            
+            # Clear temp directories
+            logging.info("Cleaning temporary directories")
+            self.run_cmd("rm -rf /tmp/* /var/tmp/* 2>/dev/null || true")
 
         if self.chk_apt.value:
             logging.info("Running APT cleanup")
             self.run_cmd("apt-get clean")
             self.run_cmd("apt-get autoremove -y --purge")
-            # Also clear apt cache
+            # Clear apt cache and rebuild it
             self.run_cmd("rm -rf /var/lib/apt/lists/*")
+            self.run_cmd("apt-get update")
 
         if self.chk_update.value:
             logging.info("Running APT update and upgrade")
@@ -490,6 +508,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
                         logging.info(f"Removed {path}")
                     except Exception as e:
                         logging.warning(f"Could not remove {path}: {e}")
+            
+            # Zero out swap for better template compression
+            logging.info("Zeroing swap space for template optimization")
+            self.run_cmd("swapoff -a 2>/dev/null || true")
+            self.run_cmd("swapon -a 2>/dev/null || true")
 
         # DO HISTORY CLEANUP LAST so all other tasks complete first
         if self.chk_history.value:
