@@ -530,8 +530,7 @@ if __name__ == "__main__":
         width = 50
         # Let op: geen spatie tussen de : en de =
         print(f"\n{' PostReady ':=^{width}}")
-        print(f"|| {'See you next time!':<{width-6}} ||")
-        print(f"|| {'- Julian Loontjens':<{width-6}} ||")
+        print(f"|| {'Goodbye! See you next time.':<{width-6}} ||")
         print("=" * width + "\n")
 
 
