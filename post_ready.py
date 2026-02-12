@@ -528,15 +528,12 @@ if __name__ == "__main__":
         logging.info("=== PostReady Application Ended Normally ===")
         
         width = 50
-        # De bovenlijn met PostReady erin verwerkt
-        print(f"\n{ ' PostReady ' :=^{width} }")
-        
-        # De inhoud met dubbele pipes aan de zijkant
-        print(f"|| { 'See you next time!':<{width-6} } ||")
-        print(f"|| { '- Julian Loontjens':<{width-6} } ||")
-        
-        # De onderlijn
+        # Let op: geen spatie tussen de : en de =
+        print(f"\n{' PostReady ':=^{width}}")
+        print(f"|| {'See you next time!':<{width-6}} ||")
+        print(f"|| {'- Julian Loontjens':<{width-6}} ||")
         print("=" * width + "\n")
+
 
     except KeyboardInterrupt:
         logging.warning("User interrupted process (SIGINT/Ctrl+C)")
