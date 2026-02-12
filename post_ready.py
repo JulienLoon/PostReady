@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 #
-# PostReady v2.6 - System Preparation Tool
+# PostReady v2.7 - System Preparation Tool
 # Author: Julian Loontjens
-# Date: 2026-01-26
+# Date: 2026-02-12
 #
 
 import npyscreen
@@ -17,10 +17,11 @@ from pathlib import Path
 
 # --- CONFIGURATIE ---
 LOG_FILE = "/var/log/postready.log"
-# [TOEGEVOEGD] MOTD Instellingen
+# MOTD Instellingen
 MOTD_REPO = "https://github.com/JulienLoon/julianloontjens-motd.git"
 MOTD_TARGET_DIR = "/etc/essentials/julianloontjens-motd"
 MOTD_SCRIPT_PATH = os.path.join(MOTD_TARGET_DIR, "install.sh")
+MOTD_UNINSTALL_PATH = os.path.join(MOTD_TARGET_DIR, "uninstall.sh")
 
 # Setup Logging
 logging.basicConfig(
@@ -33,7 +34,7 @@ logging.basicConfig(
 class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
         # --- 1. DE HOOFDTITEL (Bovenin) ---
-        title = "PostReady v2.6 - System Preparation Tool"
+        title = "PostReady v2.7 - System Preparation Tool"
         center_x_title = int((self.columns - len(title)) / 2)
         
         self.add(
@@ -79,17 +80,19 @@ class PostReadyForm(npyscreen.FormBaseNew):
             editable=False,
             rely=current_y,
             relx=center_sub,
-            color="CcCyan"
+            color="CYAN"
         )
 
         self.add(npyscreen.FixedText, value=f"Log output: {LOG_FILE}", editable=False, rely=current_y + 2, relx=2, color="WARNING")
 
         row = current_y + 4
 
-        # [TOEGEVOEGD] --- SECTIE: FEATURES ---
+        # --- SECTIE: FEATURES ---
         self.add(npyscreen.FixedText, value="[ FEATURES ]", rely=row, relx=2, color="LABEL")
         row += 1
         self.chk_motd = self.add(npyscreen.Checkbox, name="Install/Update Custom MOTD", value=True, rely=row, relx=4)
+        row += 1
+        self.chk_motd_uninstall = self.add(npyscreen.Checkbox, name="Uninstall Custom MOTD", value=False, rely=row, relx=4)
         row += 2
 
         # --- SECTIE: CLEANUP & SYSPREP ---
@@ -101,9 +104,13 @@ class PostReadyForm(npyscreen.FormBaseNew):
         row += 1
         self.chk_apt = self.add(npyscreen.Checkbox, name="APT Clean & Autoremove", value=True, rely=row, relx=4)
         row += 1
+        self.chk_update = self.add(npyscreen.Checkbox, name="APT Update & Upgrade", value=False, rely=row, relx=4)
+        row += 1
         self.chk_ssh = self.add(npyscreen.Checkbox, name="Regen SSH Host Keys", value=False, rely=row, relx=4)
         row += 1
         self.chk_machineid = self.add(npyscreen.Checkbox, name="Reset Machine-ID", value=False, rely=row, relx=4)
+        row += 1
+        self.chk_cloudinit = self.add(npyscreen.Checkbox, name="Clean Cloud-init (VM Template)", value=False, rely=row, relx=4)
         row += 2
 
         # --- SECTIE: NETWORK ---
@@ -123,12 +130,16 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.field_dns = self.add(npyscreen.TitleText, name="DNS:", rely=row+2, relx=4, hidden=True, begin_entry_at=14)
         row += 4
 
-        # --- SECTIE: SYSTEM ---
+        # --- SECTIE: SYSTEM SETTINGS ---
         self.add(npyscreen.FixedText, value="[ SETTINGS ]", rely=row, relx=2, color="LABEL")
         row += 1
         self.field_hostname = self.add(npyscreen.TitleText, name="Hostname:", rely=row, relx=4, begin_entry_at=14)
         row += 1
         self.field_user = self.add(npyscreen.TitleText, name="New User:", rely=row, relx=4, begin_entry_at=14)
+        row += 1
+        self.field_timezone = self.add(npyscreen.TitleText, name="Timezone:", rely=row, relx=4, begin_entry_at=14, value="Europe/Amsterdam")
+        row += 1
+        self.field_locale = self.add(npyscreen.TitleText, name="Locale:", rely=row, relx=4, begin_entry_at=14, value="en_US.UTF-8")
         row += 2
 
         # --- CONTROLS ---
@@ -141,8 +152,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.toggle_static_fields()
 
     def on_exit(self):
+        """Properly exit the application"""
         logging.info("User requested exit via GUI.")
-        self.parentApp.setNextForm(None)
+        self.parentApp.switchForm(None)
+        self.editing = False
+        self.parentApp.switchFormNow()
 
     def toggle_static_fields(self):
         is_static = not self.chk_dhcp.value
@@ -194,6 +208,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
         return False
 
     def on_start(self):
+        # Validate MOTD install/uninstall conflict
+        if self.chk_motd.value and self.chk_motd_uninstall.value:
+            npyscreen.notify_confirm("Cannot install and uninstall MOTD at the same time.", title="Validation Error")
+            logging.warning("Validation failed: MOTD install and uninstall both selected.")
+            return
+
         if not self.chk_dhcp.value:
             if not all([self.field_ip.value, self.field_gw.value, self.field_dns.value]):
                 npyscreen.notify_confirm("Static IP requires: IP, Gateway, DNS.", title="Validation Error")
@@ -214,14 +234,18 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.exec_cleanup()
         self.exec_network()
 
-        # FIX 1: Wacht tot netwerk & DNS stabiel is voordat MOTD
-        if not self.wait_for_network():
-            npyscreen.notify_confirm(
-                "Network not ready yet.\nSkipping MOTD installation.",
-                title="Warning"
-            )
-        else:
-            self.exec_motd()
+        # Wait for network if we need MOTD operations
+        if self.chk_motd.value or self.chk_motd_uninstall.value:
+            if not self.wait_for_network():
+                npyscreen.notify_confirm(
+                    "Network not ready yet.\nSkipping MOTD operations.",
+                    title="Warning"
+                )
+            else:
+                if self.chk_motd_uninstall.value:
+                    self.exec_motd_uninstall()
+                elif self.chk_motd.value:
+                    self.exec_motd()
 
         self.exec_system()
 
@@ -231,19 +255,19 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     # --- LOGICA ---
 
-    # [TOEGEVOEGD] MOTD Functie met Smart Check/Update
     def exec_motd(self):
+        """Install or update MOTD"""
         if not self.chk_motd.value:
             return
 
-        # FIX 2: Controleer of git aanwezig is
+        # Check if git is available
         if not shutil.which("git"):
             logging.info("Git not found. Installing...")
             self.run_cmd("apt-get update && apt-get install -y git ca-certificates")
 
         logging.info("--- STARTING MOTD INSTALLATION ---")
         
-        # 1. Zorg dat de hoofdmap (/etc/essentials) correct is
+        # Create parent directory
         parent_dir = os.path.dirname(MOTD_TARGET_DIR)
         
         if not os.path.exists(parent_dir):
@@ -260,42 +284,86 @@ class PostReadyForm(npyscreen.FormBaseNew):
         except Exception as e:
             logging.warning(f"Could not enforce permissions on {parent_dir}: {e}")
 
-        # 2. Check de doelmap
+        # Check target directory
         if os.path.exists(MOTD_TARGET_DIR):
             if os.path.isdir(os.path.join(MOTD_TARGET_DIR, ".git")):
                 logging.info("MOTD found. Updating...")
                 cwd = os.getcwd()
                 os.chdir(MOTD_TARGET_DIR)
-                if not self.run_cmd("sudo git pull"):
+                if not self.run_cmd("git pull"):
                     logging.warning("Git pull failed. Re-cloning entire repo...")
                     os.chdir(cwd)
                     shutil.rmtree(MOTD_TARGET_DIR)
-                    self.run_cmd(f"sudo git clone {MOTD_REPO}")
+                    self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
                 else:
                     os.chdir(cwd)
             else:
                 logging.warning(f"Directory {MOTD_TARGET_DIR} is invalid. Wiping and re-cloning...")
                 shutil.rmtree(MOTD_TARGET_DIR)
-                self.run_cmd(f"sudo git clone {MOTD_REPO}")
+                self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}")
         else:
             logging.info(f"Cloning {MOTD_REPO}...")
-            if not self.run_cmd(f"sudo git clone {MOTD_REPO}"):
+            if not self.run_cmd(f"git clone {MOTD_REPO} {MOTD_TARGET_DIR}"):
                 logging.error("Failed to clone MOTD repo. Check URL and Internet!")
                 return
 
-        # 3. Run Install Script
+        # Run Install Script
         if os.path.exists(MOTD_SCRIPT_PATH):
             logging.info(f"Running MOTD installer: {MOTD_SCRIPT_PATH}")
             try:
                 os.chmod(MOTD_SCRIPT_PATH, 0o755)
                 cwd = os.getcwd()
                 os.chdir(MOTD_TARGET_DIR)
-                self.run_cmd(f"./install.sh")
+                self.run_cmd("./install.sh")
                 os.chdir(cwd)
             except Exception as e:
                 logging.error(f"Error executing install.sh: {e}")
         else:
             logging.error(f"install.sh not found at {MOTD_SCRIPT_PATH}")
+
+    def exec_motd_uninstall(self):
+        """Uninstall MOTD"""
+        if not self.chk_motd_uninstall.value:
+            return
+
+        logging.info("--- STARTING MOTD UNINSTALLATION ---")
+        
+        if not os.path.exists(MOTD_TARGET_DIR):
+            logging.warning("MOTD directory not found. Nothing to uninstall.")
+            return
+
+        # Run uninstall script if it exists
+        if os.path.exists(MOTD_UNINSTALL_PATH):
+            logging.info(f"Running MOTD uninstaller: {MOTD_UNINSTALL_PATH}")
+            try:
+                os.chmod(MOTD_UNINSTALL_PATH, 0o755)
+                cwd = os.getcwd()
+                os.chdir(MOTD_TARGET_DIR)
+                self.run_cmd("./uninstall.sh")
+                os.chdir(cwd)
+            except Exception as e:
+                logging.error(f"Error executing uninstall.sh: {e}")
+        else:
+            logging.warning(f"uninstall.sh not found at {MOTD_UNINSTALL_PATH}")
+
+        # Remove MOTD directory
+        logging.info(f"Removing MOTD directory: {MOTD_TARGET_DIR}")
+        try:
+            shutil.rmtree(MOTD_TARGET_DIR)
+            logging.info("MOTD directory removed successfully")
+        except Exception as e:
+            logging.error(f"Failed to remove MOTD directory: {e}")
+
+        # Clean up sudoers entries if user exists
+        if self.field_user.value:
+            user = self.field_user.value
+            sudoers_file = f"/etc/sudoers.d/{user}"
+            if os.path.exists(sudoers_file):
+                try:
+                    os.remove(sudoers_file)
+                    logging.info(f"Removed sudoers file: {sudoers_file}")
+                except Exception as e:
+                    logging.error(f"Failed to remove sudoers file: {e}")
 
     def exec_cleanup(self):
         if self.chk_history.value:
@@ -317,10 +385,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
         if self.chk_apt.value:
             self.run_cmd("apt-get clean && apt-get autoremove -y")
 
+        if self.chk_update.value:
+            logging.info("Running APT update and upgrade")
+            self.run_cmd("apt-get update")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y")
+
         if self.chk_ssh.value:
             logging.info("Regenerating SSH keys")
             self.run_cmd("rm -f /etc/ssh/ssh_host_*")
-            self.run_cmd("dpkg-reconfigure openssh-server")
+            self.run_cmd("dpkg-reconfigure -f noninteractive openssh-server")
 
         if self.chk_machineid.value:
             logging.info("Resetting machine-id")
@@ -329,7 +402,14 @@ class PostReadyForm(npyscreen.FormBaseNew):
             if os.path.exists(dbus_id):
                 try: os.remove(dbus_id)
                 except OSError: pass
-            self.run_cmd("ln -s /etc/machine-id /var/lib/dbus/machine-id")
+            self.run_cmd("ln -sf /etc/machine-id /var/lib/dbus/machine-id")
+
+        if self.chk_cloudinit.value:
+            logging.info("Cleaning cloud-init for VM template preparation")
+            self.run_cmd("cloud-init clean --logs --seed")
+            self.run_cmd("rm -rf /var/lib/cloud/")
+            self.run_cmd("rm -rf /etc/cloud/cloud.cfg.d/99-installer.cfg")
+            self.run_cmd("rm -rf /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg")
 
     def exec_network(self):
         logging.info("Configuring Netplan")
@@ -373,6 +453,17 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.run_cmd(f"hostnamectl set-hostname {hname}")
             self.run_cmd(f"sed -i 's/127.0.1.1.*/127.0.1.1\t{hname}/' /etc/hosts")
 
+        if self.field_timezone.value:
+            tz = self.field_timezone.value
+            logging.info(f"Setting timezone: {tz}")
+            self.run_cmd(f"timedatectl set-timezone {tz}")
+
+        if self.field_locale.value:
+            locale = self.field_locale.value
+            logging.info(f"Setting locale: {locale}")
+            self.run_cmd(f"locale-gen {locale}")
+            self.run_cmd(f"update-locale LANG={locale}")
+
         if self.field_user.value:
             user = self.field_user.value
             try:
@@ -383,24 +474,26 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 self.run_cmd(f"useradd -m -s /bin/bash {user}")
                 self.run_cmd(f"usermod -aG sudo {user}")
 
-            sudoers_file = f"/etc/sudoers.d/{user}"
-            sudo_rule = f"{user} ALL=(root) NOPASSWD: {MOTD_SCRIPT_PATH}\n"
-            
-            logging.info(f"Checking sudoers permissions for: {user}")
-            try:
-                needs_update = True
-                if os.path.exists(sudoers_file):
-                    with open(sudoers_file, 'r') as f:
-                        if f.read() == sudo_rule:
-                            needs_update = False
+            # Only create sudoers file if MOTD is installed, not uninstalled
+            if self.chk_motd.value and not self.chk_motd_uninstall.value:
+                sudoers_file = f"/etc/sudoers.d/{user}"
+                sudo_rule = f"{user} ALL=(root) NOPASSWD: {MOTD_SCRIPT_PATH}\n"
                 
-                if needs_update:
-                    with open(sudoers_file, "w") as f:
-                        f.write(sudo_rule)
-                    os.chmod(sudoers_file, 0o440)
-                    logging.info(f"Sudoers file created/updated: {sudoers_file}")
-            except Exception as e:
-                logging.error(f"Failed to configure sudoers: {e}")
+                logging.info(f"Checking sudoers permissions for: {user}")
+                try:
+                    needs_update = True
+                    if os.path.exists(sudoers_file):
+                        with open(sudoers_file, 'r') as f:
+                            if f.read() == sudo_rule:
+                                needs_update = False
+                    
+                    if needs_update:
+                        with open(sudoers_file, "w") as f:
+                            f.write(sudo_rule)
+                        os.chmod(sudoers_file, 0o440)
+                        logging.info(f"Sudoers file created/updated: {sudoers_file}")
+                except Exception as e:
+                    logging.error(f"Failed to configure sudoers: {e}")
 
 class PostReadyApp(npyscreen.NPSAppManaged):
     def onStart(self):
