@@ -229,6 +229,21 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.warning(f"Validation failed: Invalid IP '{self.field_ip.value}'")
                 return
 
+        # Warning if bash history will be cleared
+        if self.chk_history.value:
+            if not npyscreen.notify_yes_no(
+                "INFO: Clearing bash history will:\n\n"
+                "• Truncate all .bash_history files\n"
+                "• Current session history remains until logout\n"
+                "• History will be empty after next login/reboot\n\n"
+                "Your session will NOT be terminated.\n\n"
+                "Continue?",
+                title="ℹ️  History Cleanup",
+                editw=1
+            ):
+                logging.info("User cancelled due to history warning.")
+                return
+
         if not npyscreen.notify_yes_no("Apply configuration changes?", title="Confirm", editw=1):
             logging.info("User cancelled operation at confirmation.")
             return
@@ -430,7 +445,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     history_files.append(user_hist)
                     logging.info(f"Added configured user history: {user_hist}")
             
-            # Truncate all found history files (better than deleting)
+            # Truncate all found history files using find command (more reliable and won't kill sessions)
+            logging.info("Truncating all .bash_history files...")
+            self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
+            
+            # Also manually truncate known files
             cleared_count = 0
             for hist_file in set(history_files):  # Use set to avoid duplicates
                 if os.path.exists(hist_file):
@@ -445,15 +464,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 else:
                     logging.debug(f"Skipped (not found): {hist_file}")
             
-            # Also clear in-memory history for current shell and all active sessions
-            # This runs history -c for all bash processes
-            logging.info("Clearing in-memory bash history for all active sessions")
-            self.run_cmd("pkill -SIGUSR2 bash 2>/dev/null || true")  # Send signal to reload
-            
-            # For good measure, also truncate history files that might be open
-            self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
-            
             logging.info(f"History cleanup complete: {cleared_count} files cleared")
+            logging.info("Note: Active sessions will still have in-memory history until logout/reboot")
 
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
