@@ -386,28 +386,64 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def exec_cleanup(self):
         if self.chk_history.value:
-            logging.info("Clearing bash history files")
-            # Clear history for root
-            history_files = [
-                "/root/.bash_history",
-                os.path.expanduser("~/.bash_history")
-            ]
+            logging.info("Clearing bash history files for all users")
+            history_files = []
             
-            # Also clear for all users in /home
+            # Method 1: Clear for root
+            history_files.append("/root/.bash_history")
+            
+            # Method 2: Clear for all users in /home
             try:
                 for user_dir in Path("/home").iterdir():
                     if user_dir.is_dir():
-                        history_files.append(str(user_dir / ".bash_history"))
+                        bash_hist = user_dir / ".bash_history"
+                        history_files.append(str(bash_hist))
             except Exception as e:
                 logging.warning(f"Could not scan /home directory: {e}")
             
-            for hist_file in history_files:
+            # Method 3: Parse /etc/passwd for all real users (UID >= 1000)
+            try:
+                with open("/etc/passwd", "r") as passwd_file:
+                    for line in passwd_file:
+                        parts = line.strip().split(":")
+                        if len(parts) >= 7:
+                            username = parts[0]
+                            uid = int(parts[2])
+                            home_dir = parts[5]
+                            shell = parts[6]
+                            
+                            # Only process real users with bash/sh shells and UID >= 1000
+                            if uid >= 1000 and shell and ("bash" in shell or "sh" in shell):
+                                if home_dir and os.path.exists(home_dir):
+                                    bash_hist = os.path.join(home_dir, ".bash_history")
+                                    if bash_hist not in history_files:
+                                        history_files.append(bash_hist)
+                                        logging.info(f"Found user {username} with home {home_dir}")
+            except Exception as e:
+                logging.warning(f"Could not parse /etc/passwd: {e}")
+            
+            # Method 4: If a new user is configured, also target their history
+            if self.field_user.value:
+                user_home = f"/home/{self.field_user.value}"
+                user_hist = os.path.join(user_home, ".bash_history")
+                if user_hist not in history_files:
+                    history_files.append(user_hist)
+                    logging.info(f"Added configured user history: {user_hist}")
+            
+            # Remove all found history files
+            removed_count = 0
+            for hist_file in set(history_files):  # Use set to avoid duplicates
                 if os.path.exists(hist_file):
                     try:
                         os.remove(hist_file)
-                        logging.info(f"Deleted {hist_file}")
+                        logging.info(f"✓ Deleted: {hist_file}")
+                        removed_count += 1
                     except OSError as e:
-                        logging.warning(f"Failed to delete {hist_file}: {e}")
+                        logging.warning(f"✗ Failed to delete {hist_file}: {e}")
+                else:
+                    logging.debug(f"Skipped (not found): {hist_file}")
+            
+            logging.info(f"History cleanup complete: {removed_count} files removed")
 
         if self.chk_logs.value:
             logging.info("Truncating log files in /var/log")
