@@ -512,9 +512,8 @@ if __name__ == "__main__":
     try:
         PostReadyApp().run()
         logging.info("=== PostReady Application Ended Normally ===")
-        print("\n" + "="*50)
+        print("\n" + " PostReady ".center(50, "="))
         print("  See you next time!")
-        print("  - Julian Loontjens")
         print("="*50 + "\n")
     except KeyboardInterrupt:
         logging.warning("User interrupted process (SIGINT/Ctrl+C)")
