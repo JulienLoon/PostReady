@@ -171,8 +171,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Row 28: separator above action bar ├───┤
-        try: self.curses_pad.addstr(28, 0, (LT + H * inner + RT)[:cols])
+        # Row 28: labeled action bar separator
+        act_label = "  Actions  "
+        act_side  = max(0, (inner - len(act_label)) // 2)
+        act_fill  = max(0, inner - act_side - len(act_label))
+        act_sep   = LT + H * act_side + act_label + H * act_fill + RT
+        try: self.curses_pad.addstr(28, 0, act_sep[:cols])
         except Exception: pass
 
     def handle_exiting_widgets(self, condition):
@@ -231,13 +235,14 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._output_lines = []
 
         self.status_text = self.add(
-            npyscreen.FixedText, value="Ready for next command.", rely=30, relx=42, color="GOOD")
+            npyscreen.FixedText, value="◆  Ready for next command.",
+            rely=29, relx=3, color="GOOD")
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
-                 rely=30, relx=2,  when_pressed_function=self._do_apply)
+                 rely=30, relx=4,  when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
-                 rely=30, relx=14, when_pressed_function=self._view_log)
+                 rely=30, relx=32, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",
-                 rely=30, relx=28, when_pressed_function=self._quit)
+                 rely=30, relx=62, when_pressed_function=self._quit)
 
         self._switch(0)
 
@@ -600,11 +605,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
             ("Systeem…",     self.exec_system),
         ]
         for i, (lbl, fn) in enumerate(steps, 1):
-            self.set_status(f"Stap {i}/{len(steps)}: {lbl}")
+            self.set_status(f"▶  Stap {i}/{len(steps)}: {lbl}")
             fn()
 
         if self.chk_motd.value or self.chk_motd_uninstall.value:
-            self.set_status("MOTD…")
+            self.set_status("▶  MOTD…")
             if self.wait_for_network():
                 if self.chk_motd_uninstall.value: self.exec_motd_uninstall()
                 elif self.chk_motd.value:         self.exec_motd()
@@ -613,9 +618,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
         script = (self.field_custom_script.value or "").strip()
         if script:
-            self.set_status("Custom script…")
+            self.set_status("▶  Custom script…")
             self.exec_custom_script(script)
 
+        self.set_status("◆  Ready for next command.")
         logging.info("--- COMPLETED ---")
 
         if self.chk_shutdown.value:
