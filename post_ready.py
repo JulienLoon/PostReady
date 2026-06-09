@@ -232,16 +232,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_settings()
         self._create_advanced()
 
-        # Output overlay — large, hidden until execution starts
-        self.output_box = self.add(
-            npyscreen.MultiLineEdit,
-            value="",
-            rely=CS, relx=2,
-            max_height=16,
-            editable=False,
-            hidden=True,
-        )
         self._output_lines = []
+        self._in_output_mode = False
 
         self._status_msg = "◆  Ready for next command."
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
@@ -497,36 +489,58 @@ class PostReadyForm(npyscreen.FormBaseNew):
     def set_status(self, text):
         self._status_msg = text
         try:
-            self._display()
+            cols = self.columns
+        except Exception:
+            cols = 80
+        try:
+            blank = " " * max(0, cols - 4)
+            self.curses_pad.addstr(29, 3, blank)
+            self.curses_pad.addstr(29, 3, text[:cols - 4])
+            self.curses_pad.refresh(0, 0, 0, 0, curses.LINES - 1, curses.COLS - 1)
         except Exception:
             pass
 
     def _clear_output(self):
         self._output_lines = []
+        self._in_output_mode = True
         for ws in self._page_widgets:
             for w in ws:
                 w.hidden = True
-        self.output_box.value = ""
-        self.output_box.hidden = False
+        # draw_form redraws borders/separators; hidden widgets leave content area blank
         self.show_aty = 0
         self.display()
 
     def _restore_output(self):
-        self.output_box.hidden = True
+        self._in_output_mode = False
         self._switch(self._current_page)
-        self.show_aty = 0
+
+    def _redraw_output_area(self):
+        try:
+            cols = self.columns
+        except Exception:
+            cols = 80
+        max_lines = 17  # rows CS..CS+16 (11..27)
+        blank = " " * max(0, cols - 4)
+        for i in range(max_lines):
+            try:
+                self.curses_pad.addstr(CS + i, 2, blank)
+            except Exception:
+                pass
+        visible = self._output_lines[-max_lines:]
+        for i, text in enumerate(visible):
+            try:
+                self.curses_pad.addstr(CS + i, 2, text[:cols - 4])
+            except Exception:
+                pass
+        try:
+            self.curses_pad.refresh(0, 0, 0, 0, curses.LINES - 1, curses.COLS - 1)
+        except Exception:
+            pass
 
     def _append_output(self, line):
         try:
             self._output_lines.append(str(line))
-            self.output_box.value = "\n".join(self._output_lines[-16:])
-            self.output_box.update(clear=True)
-            try:
-                self.show_aty = 0
-                self._display()
-                curses.doupdate()
-            except Exception:
-                pass
+            self._redraw_output_area()
         except Exception:
             pass
 
