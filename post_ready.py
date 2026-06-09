@@ -79,21 +79,22 @@ class LogViewerForm(npyscreen.FormBaseNew):
 # ============================================================
 
 class NavButton(npyscreen.ButtonPress):
-    nav_index = 0
+    nav_index      = 0
+    how_exited     = False   # always-present default so form never hits AttributeError
+    _go_to_content = False   # flagged True only on real DOWN press
 
     def h_exit_left(self, _input):
         if self.nav_index > 0:
             self.parent._switch(self.nav_index - 1)
-        self.h_exit_up(_input)                              # go to previous nav button
+        self.h_exit_up(_input)                           # move to previous nav button
 
     def h_exit_right(self, _input):
         if self.nav_index < len(PAGE_NAMES) - 1:
             self.parent._switch(self.nav_index + 1)
-        npyscreen.ButtonPress.h_exit_down(self, _input)    # go to next nav button
+        npyscreen.ButtonPress.h_exit_down(self, _input)  # move to next nav button
 
     def h_exit_down(self, _input):
-        # Jump editw to last nav button so find_next_editable skips to page content
-        self.parent.editw = len(PAGE_NAMES) - 1
+        self._go_to_content = True                       # form intercepts this in handle_exiting_widgets
         npyscreen.ButtonPress.h_exit_down(self, _input)
 
 
@@ -149,6 +150,18 @@ class PostReadyForm(npyscreen.FormBaseNew):
         # Row 10: separator below nav buttons
         try: self.curses_pad.addstr(10, 1, H * (cols - 2))
         except Exception: pass
+
+    def handle_exiting_widgets(self, condition):
+        w = self._widgets__[self.editw]
+        if isinstance(w, NavButton) and w._go_to_content:
+            w._go_to_content = False
+            # Jump straight to first visible, editable content widget (past all nav buttons)
+            for i in range(len(PAGE_NAMES), len(self._widgets__)):
+                c = self._widgets__[i]
+                if c.editable and not c.hidden:
+                    self.editw = i
+                    return
+        super().handle_exiting_widgets(condition)
 
     def display(self, *args, **kwargs):
         try:
