@@ -619,11 +619,11 @@ class TabNetwork(BaseTab):
 
         self.add(npyscreen.FixedText, value="[ NETWORK ]", rely=row, relx=2, color="LABEL"); row += 1
         self.all_ifaces = self._detect_ifaces()
-        ih = max(1, min(len(self.all_ifaces), 3))
-        self.iface_select = self.add(
-            npyscreen.TitleSelectOne, name="Interface:", values=self.all_ifaces,
-            value=[0], rely=row, relx=4, max_height=ih, scroll_exit=True)
-        row += ih + 1
+        default_iface = self.all_ifaces[0] if self.all_ifaces else "eth0"
+        self.field_iface = self.add(
+            npyscreen.TitleText, name="Interface:", rely=row, relx=4,
+            begin_entry_at=14, value=default_iface)
+        row += 1
 
         self.chk_dhcp = self.add(npyscreen.Checkbox, name="Enable DHCP", value=True, rely=row, relx=4)
         self.chk_dhcp.when_value_edited = self._tog_static; row += 1
@@ -649,8 +649,7 @@ class TabNetwork(BaseTab):
             return ["eth0"]
 
     def _selected_iface(self):
-        try: return self.all_ifaces[self.iface_select.value[0]]
-        except (IndexError, TypeError): return self.all_ifaces[0]
+        return self.field_iface.value.strip() or "eth0"
 
     def _tog_static(self):
         static = not self.chk_dhcp.value
