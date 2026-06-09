@@ -180,17 +180,28 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Row 28: ├──── Actions ────┤
+        # Actions separator (dynamic row)
+        r_act = getattr(self, '_row_actions_sep', 28)
         act_label = "  Actions  "
         act_side  = max(0, (inner - len(act_label)) // 2)
         act_fill  = max(0, inner - act_side - len(act_label))
         act_sep   = LT + H * act_side + act_label + H * act_fill + RT
-        try: self.curses_pad.addstr(28, 0, act_sep[:cols])
+        try: self.curses_pad.addstr(r_act, 0, act_sep[:cols])
         except Exception: pass
 
-        # Row 29: status text (drawn directly, not a widget)
+        # Status text (dynamic row)
+        r_sts = getattr(self, '_row_status', 29)
         status = getattr(self, '_status_msg', '◆  Ready for next command.')
-        try: self.curses_pad.addstr(29, 3, status[:cols - 4])
+        try: self.curses_pad.addstr(r_sts, 3, status[:cols - 4])
+        except Exception: pass
+
+        # Output separator (dynamic row)
+        r_out = getattr(self, '_row_output_sep', 31)
+        out_label = "  Output  "
+        out_side  = max(0, (inner - len(out_label)) // 2)
+        out_fill  = max(0, inner - out_side - len(out_label))
+        out_sep   = LT + H * out_side + out_label + H * out_fill + RT
+        try: self.curses_pad.addstr(r_out, 0, out_sep[:cols])
         except Exception: pass
 
     def handle_exiting_widgets(self, condition):
@@ -213,19 +224,29 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.editw = self._current_page
 
     def display(self, *args, **kwargs):
-        try:
-            focused = self._widgets__[self.editw]
-            vis_h   = max(1, curses.LINES - 2)
-            wid_y   = focused.rely
-            if wid_y < self.show_aty:
-                self.show_aty = max(0, wid_y - 2)
-            elif wid_y >= self.show_aty + vis_h:
-                self.show_aty = max(0, wid_y - vis_h + 3)
-        except Exception:
-            pass
+        self.show_aty = 0  # always pin to top; layout fits the terminal
         super().display(*args, **kwargs)
 
+    def _calc_layout(self):
+        """Calculate row positions dynamically based on terminal height."""
+        try:
+            avail = max(20, self.lines)
+        except Exception:
+            avail = max(20, curses.LINES or 35)
+        # Fixed overhead: 11 header + 3 actions + 1 output sep + 1 bottom = 16
+        remaining    = max(4, avail - 16)
+        content_rows = min(17, max(2, remaining - 2))
+        output_rows  = max(2, remaining - content_rows)
+        self._row_actions_sep  = CS + content_rows
+        self._row_status       = self._row_actions_sep + 1
+        self._row_buttons      = self._row_status + 1
+        self._row_output_sep   = self._row_buttons + 1
+        self._row_output_start = self._row_output_sep + 1
+        self._row_bottom       = avail - 1
+        self._output_max_lines = output_rows
+
     def create(self):
+        self._calc_layout()
         self._page_widgets = [[], [], [], [], []]
         self._current_page = 0
 
@@ -238,15 +259,13 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_advanced()
 
         self._output_lines = []
-        self._in_output_mode = False
-
         self._status_msg = "◆  Ready for next command."
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
-                 rely=30, relx=4,  when_pressed_function=self._do_apply)
+                 rely=self._row_buttons, relx=4,  when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
-                 rely=30, relx=32, when_pressed_function=self._view_log)
+                 rely=self._row_buttons, relx=32, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",
-                 rely=30, relx=62, when_pressed_function=self._quit)
+                 rely=self._row_buttons, relx=62, when_pressed_function=self._quit)
 
         self._switch(0)
 
@@ -497,44 +516,39 @@ class PostReadyForm(npyscreen.FormBaseNew):
             cols = self.columns
         except Exception:
             cols = 80
+        r = getattr(self, '_row_status', 29)
         try:
             blank = " " * max(0, cols - 4)
-            self.curses_pad.addstr(29, 3, blank)
-            self.curses_pad.addstr(29, 3, text[:cols - 4])
+            self.curses_pad.addstr(r, 3, blank)
+            self.curses_pad.addstr(r, 3, text[:cols - 4])
             self.curses_pad.refresh(0, 0, 0, 0, curses.LINES - 1, curses.COLS - 1)
         except Exception:
             pass
 
     def _clear_output(self):
         self._output_lines = []
-        self._in_output_mode = True
-        for ws in self._page_widgets:
-            for w in ws:
-                w.hidden = True
-        # draw_form redraws borders/separators; hidden widgets leave content area blank
-        self.show_aty = 0
-        self.display()
+        self._redraw_output_area()
 
     def _restore_output(self):
-        self._in_output_mode = False
-        self._switch(self._current_page)
+        pass  # output area is always visible; no widget swapping needed
 
     def _redraw_output_area(self):
         try:
             cols = self.columns
         except Exception:
             cols = 80
-        max_lines = 17  # rows CS..CS+16 (11..27)
+        row_start = getattr(self, '_row_output_start', 32)
+        max_lines = getattr(self, '_output_max_lines', 3)
         blank = " " * max(0, cols - 4)
         for i in range(max_lines):
             try:
-                self.curses_pad.addstr(CS + i, 2, blank)
+                self.curses_pad.addstr(row_start + i, 2, blank)
             except Exception:
                 pass
         visible = self._output_lines[-max_lines:]
         for i, text in enumerate(visible):
             try:
-                self.curses_pad.addstr(CS + i, 2, text[:cols - 4])
+                self.curses_pad.addstr(row_start + i, 2, text[:cols - 4])
             except Exception:
                 pass
         try:
