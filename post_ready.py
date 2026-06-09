@@ -2,6 +2,7 @@
 #
 # PostReady v3.0 - System Preparation Tool
 # Author: Julian Loontjens
+# Copyright © 2026 Julian Loontjens. All rights reserved.
 #
 
 import curses
@@ -146,8 +147,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
             try: self.curses_pad.addstr(r, cols - 1, V)
             except Exception: pass
 
-        # Bottom border
-        try: self.curses_pad.addstr(rows - 1, 0, (BL + H * inner + BR)[:cols])
+        # Bottom border with copyright
+        copy_label = "  © 2026 Julian Loontjens  "
+        copy_side  = max(0, (inner - len(copy_label)) // 2)
+        copy_fill  = max(0, inner - copy_side - len(copy_label))
+        bottom     = BL + H * copy_side + copy_label + H * copy_fill + BR
+        try: self.curses_pad.addstr(rows - 1, 0, bottom[:cols])
         except Exception: pass
 
         # Rows 1-6: ASCII logo
