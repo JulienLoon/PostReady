@@ -197,7 +197,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
         # Shortcut hints (dynamic row, below buttons)
         r_hints = getattr(self, '_row_hints', 31)
-        hints = "^A:apply   ^L:log   ^Q:quit   ^T:tab"
+        hints = "[ tip ]  ^A:apply  ·  ^L:log  ·  ^Q:quit  ·  ^T:tab"
         hints_x = max(2, (cols - len(hints)) // 2)
         try: self.curses_pad.addstr(r_hints, hints_x, hints[:cols - 2])
         except Exception: pass
