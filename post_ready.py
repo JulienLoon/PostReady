@@ -168,8 +168,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(7, sub_x, subtitle)
         except Exception: pass
 
-        # Row 8: ├──── Navigation [^T] ────┤
-        nav_label = "  Navigation  [^T]  "
+        # Row 8: ├──── Navigation ────┤
+        nav_label = "  Navigation  "
         nav_side  = max(0, (inner - len(nav_label)) // 2)
         nav_fill  = max(0, inner - nav_side - len(nav_label))
         nav_sep   = LT + H * nav_side + nav_label + H * nav_fill + RT
@@ -259,13 +259,16 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_advanced()
 
         self._output_lines = []
-        self._status_msg = "◆  Ready for next command."
-        self.add(npyscreen.ButtonPress, name="[ ^A  APPLY ]",
-                 rely=self._row_buttons, relx=4,  when_pressed_function=self._do_apply)
-        self.add(npyscreen.ButtonPress, name="[ ^L  LOG ]",
-                 rely=self._row_buttons, relx=32, when_pressed_function=self._view_log)
-        self.add(npyscreen.ButtonPress, name="[ ^Q  QUIT ]",
-                 rely=self._row_buttons, relx=62, when_pressed_function=self._quit)
+        self._status_msg = "^T:tab   ^A:apply   ^L:log   ^Q:quit"
+        cols = self.columns
+        relx_log  = max(20, (cols - 7) // 2)
+        relx_quit = max(relx_log + 12, cols - 11)
+        self.add(npyscreen.ButtonPress, name="[ APPLY ]",
+                 rely=self._row_buttons, relx=4,        when_pressed_function=self._do_apply)
+        self.add(npyscreen.ButtonPress, name="[ LOG ]",
+                 rely=self._row_buttons, relx=relx_log, when_pressed_function=self._view_log)
+        self.add(npyscreen.ButtonPress, name="[ QUIT ]",
+                 rely=self._row_buttons, relx=relx_quit, when_pressed_function=self._quit)
 
         # Ctrl+T=20  Ctrl+A=1  Ctrl+L=12  Ctrl+Q=17
         self.add_handlers({
@@ -288,6 +291,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         pass  # drawn via draw_form()
 
     def _draw_nav(self):
+        self._nav_buttons = []
         x = 2
         for i, name in enumerate(PAGE_NAMES):
             lbl = f"[ {name} ]"
@@ -295,6 +299,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                            rely=9, relx=x,
                            when_pressed_function=lambda p=i: self._switch(p))
             btn.nav_index = i
+            self._nav_buttons.append(btn)
             x += len(lbl) + 2
 
     # ---- page registration helper ----
@@ -512,6 +517,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 if not isinstance(w, npyscreen.FixedText):
                     w.editable = visible
         self._current_page = page
+        # Mark active tab with ▸, inactive tabs with plain brackets
+        for i, btn in enumerate(getattr(self, '_nav_buttons', [])):
+            name = PAGE_NAMES[i]
+            btn.name = f"[▸{name} ]" if i == page else f"[ {name} ]"
         self._draw_section_sep(page)
         if page == 1:
             self._toggle_dhcp()
@@ -704,7 +713,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.set_status("▶  Custom script…")
             self.exec_custom_script(script)
 
-        self.set_status("◆  Ready for next command.")
+        self.set_status("^T:tab   ^A:apply   ^L:log   ^Q:quit")
         self._restore_output()
         logging.info("--- COMPLETED ---")
 
