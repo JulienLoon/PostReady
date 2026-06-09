@@ -315,7 +315,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             return ["eth0"]
 
     def _selected_iface(self):
-        return self.field_iface.value.strip() or "eth0"
+        return (self.field_iface.value or "").strip() or "eth0"
 
     def _toggle_dhcp(self):
         static = not self.chk_dhcp.value
@@ -545,12 +545,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
             if not all([self.field_ip.value, self.field_gw.value, self.field_dns.value]):
                 npyscreen.notify_confirm("Statisch IP vereist: IP, Gateway en DNS.", title="Fout")
                 self._switch(1); return
-            if not self._valid_ip(self.field_ip.value.strip()):
+            if not self._valid_ip((self.field_ip.value or "").strip()):
                 npyscreen.notify_confirm("Ongeldig IP-formaat.", title="Fout")
                 self._switch(1); return
         if self.chk_ssh_harden.value:
             try:
-                port = int(self.field_ssh_port.value.strip())
+                port = int((self.field_ssh_port.value or "").strip())
                 if not (1 <= port <= 65535): raise ValueError
             except ValueError:
                 npyscreen.notify_confirm("Ongeldige SSH-poort.", title="Fout")
@@ -587,7 +587,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             else:
                 npyscreen.notify_confirm("Netwerk niet bereikbaar. MOTD overgeslagen.", title="Waarschuwing")
 
-        script = self.field_custom_script.value.strip()
+        script = (self.field_custom_script.value or "").strip()
         if script:
             self.set_status("Custom script…")
             self.exec_custom_script(script)
@@ -698,10 +698,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 f"    {iface}:\n      dhcp4: true\n"
             )
         else:
-            ip  = self.field_ip.value.strip()
+            ip  = (self.field_ip.value or "").strip()
             ip  = ip if "/" in ip else f"{ip}/24"
-            gw  = self.field_gw.value.strip()
-            dns = self.field_dns.value.strip()
+            gw  = (self.field_gw.value or "").strip()
+            dns = (self.field_dns.value or "").strip()
             content = (
                 f"network:\n  version: 2\n  ethernets:\n    {iface}:\n"
                 f"      dhcp4: false\n      addresses: [{ip}]\n"
@@ -719,10 +719,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
         except Exception as e:
             logging.error(f"Netplan error: {e}")
 
-        if self.chk_dhcp.value and self.chk_dns_override.value and self.field_dns.value.strip():
+        if self.chk_dhcp.value and self.chk_dns_override.value and (self.field_dns.value or "").strip():
             try:
                 Path("/etc/systemd/resolved.conf").write_text(
-                    f"[Resolve]\nDNS={self.field_dns.value.strip()}\n")
+                    f"[Resolve]\nDNS={(self.field_dns.value or '').strip()}\n")
                 self.run_cmd("systemctl restart systemd-resolved")
             except Exception as e:
                 logging.error(f"DNS override: {e}")
@@ -745,7 +745,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         if self.chk_ssh_harden.value:
             try:
                 cfg = Path("/etc/ssh/sshd_config").read_text()
-                port = self.field_ssh_port.value.strip()
+                port = (self.field_ssh_port.value or "").strip()
                 cfg = re.sub(r'^#?Port\s+\d+', f'Port {port}', cfg, flags=re.MULTILINE)
                 if not re.search(r'^Port\s+', cfg, re.MULTILINE):
                     cfg += f'\nPort {port}\n'
@@ -769,7 +769,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.run_cmd("ufw --force reset")
             self.run_cmd("ufw default deny incoming")
             self.run_cmd("ufw default allow outgoing")
-            for port in self.field_ufw_ports.value.strip().split(','):
+            for port in (self.field_ufw_ports.value or "").strip().split(','):
                 if port.strip(): self.run_cmd(f"ufw allow {port.strip()}")
             self.run_cmd("ufw --force enable")
 
@@ -786,33 +786,33 @@ class PostReadyForm(npyscreen.FormBaseNew):
     # ============================================================
 
     def exec_system(self):
-        if self.field_hostname.value.strip():
-            h = self.field_hostname.value.strip()
+        if (self.field_hostname.value or "").strip():
+            h = (self.field_hostname.value or "").strip()
             self.run_cmd(f"hostnamectl set-hostname {h}")
             self.run_cmd(f"sed -i 's/127.0.1.1.*/127.0.1.1\\t{h}/' /etc/hosts")
 
-        if self.field_timezone.value.strip():
-            self.run_cmd(f"timedatectl set-timezone {self.field_timezone.value.strip()}")
+        if (self.field_timezone.value or "").strip():
+            self.run_cmd(f"timedatectl set-timezone {(self.field_timezone.value or '').strip()}")
 
-        if self.field_locale.value.strip():
-            lc = self.field_locale.value.strip()
+        if (self.field_locale.value or "").strip():
+            lc = (self.field_locale.value or "").strip()
             self.run_cmd(f"locale-gen {lc}")
             self.run_cmd(f"update-locale LANG={lc}")
 
-        if self.field_ntp.value.strip():
+        if (self.field_ntp.value or "").strip():
             try:
                 Path("/etc/systemd/timesyncd.conf").write_text(
-                    f"[Time]\nNTP={self.field_ntp.value.strip()}\n")
+                    f"[Time]\nNTP={(self.field_ntp.value or '').strip()}\n")
                 self.run_cmd("systemctl restart systemd-timesyncd")
             except Exception as e:
                 logging.error(f"NTP: {e}")
 
         try:
-            swap_mb = int(self.field_swap.value.strip())
+            swap_mb = int((self.field_swap.value or "").strip())
             if swap_mb > 0: self._exec_swap(swap_mb)
         except (ValueError, AttributeError): pass
 
-        user = self.field_user.value.strip()
+        user = (self.field_user.value or "").strip()
         if user:
             try:
                 subprocess.run(f"id -u {user}", shell=True, check=True,
@@ -833,7 +833,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 else:
                     logging.info(f"[DRY-RUN] would set password for {user}")
 
-            if self.field_ssh_pubkey.value.strip():
+            if (self.field_ssh_pubkey.value or "").strip():
                 try:
                     home = subprocess.check_output(
                         f"getent passwd {user} | cut -d: -f6",
@@ -842,7 +842,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                     ssh_dir.mkdir(mode=0o700, exist_ok=True)
                     auth = ssh_dir / "authorized_keys"
                     with open(auth, 'a') as f:
-                        f.write(f"{self.field_ssh_pubkey.value.strip()}\n")
+                        f.write(f"{(self.field_ssh_pubkey.value or '').strip()}\n")
                     os.chmod(auth, 0o600)
                     self.run_cmd(f"chown -R {user}:{user} {ssh_dir}")
                 except Exception as e:
@@ -922,7 +922,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             except Exception as e:
                 logging.error(f"uninstall.sh: {e}")
 
-        user = self.field_user.value.strip()
+        user = (self.field_user.value or "").strip()
         if user:
             sf = f"/etc/sudoers.d/{user}"
             if os.path.exists(sf):
