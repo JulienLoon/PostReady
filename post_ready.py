@@ -5,6 +5,7 @@
 # Date: 2026-06-09
 #
 
+import curses
 import npyscreen
 import subprocess
 import re
@@ -57,6 +58,46 @@ class LogViewerForm(npyscreen.FormBaseNew):
 
 
 class PostReadyForm(npyscreen.FormBaseNew):
+    def __init__(self, *args, **kwargs):
+        # Create a virtual canvas taller than the terminal so all widgets fit
+        try:
+            cols = max(80, curses.COLS)
+        except Exception:
+            cols = 200
+        kwargs.setdefault('lines', 200)
+        kwargs.setdefault('columns', cols)
+        super().__init__(*args, **kwargs)
+
+    def while_editing(self, widget):
+        # Auto-scroll to keep the focused widget visible
+        try:
+            if widget is None:
+                return
+            wid_y = widget.rely
+            vis_h = curses.LINES - 2
+            if wid_y < self.show_aty:
+                self.show_aty = max(0, wid_y - 1)
+                self.display()
+            elif wid_y >= self.show_aty + vis_h:
+                self.show_aty = max(0, wid_y - vis_h + 2)
+                self.display()
+        except Exception:
+            pass
+
+    def _pg_up(self, *args):
+        try:
+            self.show_aty = max(0, self.show_aty - (curses.LINES - 3))
+            self.display()
+        except Exception:
+            pass
+
+    def _pg_down(self, *args):
+        try:
+            self.show_aty = self.show_aty + (curses.LINES - 3)
+            self.display()
+        except Exception:
+            pass
+
     def create(self):
         title = "PostReady v3.0 - System Preparation Tool"
         self.add(npyscreen.FixedText, value=title, editable=False, rely=0,
@@ -159,11 +200,16 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
         # --- STATUS + CONTROLS ---
         self.add(npyscreen.FixedText, value="[ CONTROLS ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.status_text = self.add(npyscreen.FixedText, value="Klaar.", rely=row, relx=4, color="GOOD"); row += 1
+        self.status_text = self.add(npyscreen.FixedText, value="Klaar.  |  PgUp/PgDn: scrollen", rely=row, relx=4, color="GOOD"); row += 1
         mid = max(4, self.columns // 2 - 20)
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",    rely=row, relx=mid,      when_pressed_function=self.on_start)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]", rely=row, relx=mid + 12, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",     rely=row, relx=mid + 25, when_pressed_function=self.on_exit)
+
+        self.add_handlers({
+            curses.KEY_NPAGE: self._pg_down,
+            curses.KEY_PPAGE: self._pg_up,
+        })
 
         self._toggle_static()
         self._toggle_dns_override()
