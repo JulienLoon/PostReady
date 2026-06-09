@@ -195,6 +195,17 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_settings()
         self._create_advanced()
 
+        # Output panel — shown over the content area during command execution
+        self.output_box = self.add(
+            npyscreen.MultiLineEdit,
+            value="",
+            rely=CS, relx=2,
+            max_height=16,
+            editable=False,
+            hidden=True,
+        )
+        self._output_lines = []
+
         self.status_text = self.add(
             npyscreen.FixedText, value="Klaar.", rely=28, relx=2, color="GOOD")
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
@@ -439,6 +450,27 @@ class PostReadyForm(npyscreen.FormBaseNew):
         except Exception:
             pass
 
+    def _show_output(self):
+        self._output_lines = []
+        for ws in self._page_widgets:
+            for w in ws:
+                w.hidden = True
+        self.output_box.value = ""
+        self.output_box.hidden = False
+        self.display()
+
+    def _append_output(self, line):
+        try:
+            self._output_lines.append(str(line))
+            self.output_box.value = "\n".join(self._output_lines[-14:])
+            self.output_box.update(clear=True)
+            try:
+                self._display()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _view_log(self):
         self.parentApp.switchForm("LOG")
 
@@ -451,13 +483,33 @@ class PostReadyForm(npyscreen.FormBaseNew):
     def run_cmd(self, cmd, shell=True):
         if getattr(self.parentApp, "_dryrun", False):
             logging.info(f"[DRY-RUN] {cmd}")
+            self._append_output(f"[DRY-RUN] {cmd[:80]}")
             return True
         logging.info(f"CMD_EXEC: {cmd}")
+        short = cmd[:80] + ("…" if len(cmd) > 80 else "")
+        self._append_output(f"$ {short}")
         try:
-            subprocess.run(cmd, shell=shell, check=True)
+            proc = subprocess.Popen(
+                cmd, shell=shell,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+            for raw in iter(proc.stdout.readline, ""):
+                line = raw.rstrip()
+                if line:
+                    logging.info(f"  {line}")
+                    self._append_output(line)
+            proc.stdout.close()
+            rc = proc.wait()
+            if rc != 0:
+                logging.error(f"CMD_FAIL: {cmd} | RC={rc}")
+                self._append_output(f"[rc={rc}]")
+                return False
             return True
-        except subprocess.CalledProcessError as e:
-            logging.error(f"CMD_FAIL: {cmd} | RC={e.returncode}")
+        except Exception as e:
+            logging.error(f"CMD_ERROR: {cmd} | {e}")
+            self._append_output(f"[ERROR] {e}")
             return False
 
     def wait_for_network(self, timeout=20):
@@ -515,6 +567,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                                        title="Bevestigen", editw=1):
             return
 
+        self._show_output()
         logging.info(f"--- START (dryrun={self.parentApp._dryrun}) ---")
         steps = [
             ("Cleanup…",     self.exec_cleanup),
