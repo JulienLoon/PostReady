@@ -2,7 +2,6 @@
 #
 # PostReady v3.0 - System Preparation Tool
 # Author: Julian Loontjens
-# Date: 2026-06-09
 #
 
 import curses
@@ -26,19 +25,25 @@ MOTD_TARGET   = "/etc/essentials/julianloontjens-motd"
 MOTD_INSTALL  = os.path.join(MOTD_TARGET, "install.sh")
 MOTD_UNINSTALL= os.path.join(MOTD_TARGET, "uninstall.sh")
 
-TABS = [
-    ("F1:Cleanup",  "MAIN"),
-    ("F2:Network",  "NETWORK"),
-    ("F3:Security", "SECURITY"),
-    ("F4:Settings", "SETTINGS"),
-    ("F5:Advanced", "ADVANCED"),
-]
-
 logging.basicConfig(
     filename=LOG_FILE, level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+LOGO = [
+    r" ____           _   ____                _       ",
+    r"|  _ \ ___  ___| |_|  _ \ ___  __ _  __| |_   _ ",
+    r"| |_) / _ \/ __| __| |_) / _ \/ _` |/ _` | | | |",
+    r"|  __/ (_) \__ \ |_|  _ <  __/ (_| | (_| | |_| |",
+    r"|_|   \___/|___/\__|_| \_\___|\__,_|\__,_|\__, |",
+    r"                                          |___/ ",
+]
+
+PAGE_NAMES = ["Cleanup", "Network", "Security", "Settings", "Advanced"]
+
+# Row where page content starts (after title/logo/subtitle/sep/nav/sep)
+CS = 11
 
 
 # ============================================================
@@ -66,50 +71,312 @@ class LogViewerForm(npyscreen.FormBaseNew):
             return f"Kan log niet lezen: {e}"
 
     def _back(self, _=None):
-        self.parentApp.switchForm(getattr(self.parentApp, "_log_from", "MAIN"))
+        self.parentApp.switchForm("MAIN")
 
 
 # ============================================================
-# BASE TAB  (header, controls, run_cmd, shared helpers)
+# MAIN FORM — single form, page switching
 # ============================================================
 
-class BaseTab(npyscreen.FormBaseNew):
-    TAB_KEY = "MAIN"
+class PostReadyForm(npyscreen.FormBaseNew):
 
-    # --- header + controls ---
+    def __init__(self, *args, **kwargs):
+        try:
+            lines = max(35, curses.LINES) if curses.LINES else 35
+            cols  = max(80, curses.COLS)  if curses.COLS  else 80
+        except Exception:
+            lines, cols = 35, 80
+        kwargs.setdefault('lines',   lines)
+        kwargs.setdefault('columns', cols)
+        super().__init__(*args, **kwargs)
 
-    def _header(self):
-        self.add(npyscreen.FixedText,
-                 value="PostReady v3.0 — System Preparation Tool",
-                 rely=0, relx=2, color="STANDOUT")
-        bar = "  ".join(
-            f"[{n}]" if k == self.TAB_KEY else f" {n} "
-            for n, k in TABS
-        )
-        self.add(npyscreen.FixedText, value=bar, rely=1, relx=2, color="LABEL")
-        self.add(npyscreen.FixedText, value="─" * 72, rely=2, relx=0, color="LABEL")
+    def display(self, *args, **kwargs):
+        try:
+            focused = self._widgets__[self.editw]
+            vis_h   = max(1, curses.LINES - 2)
+            wid_y   = focused.rely
+            if wid_y < self.show_aty:
+                self.show_aty = max(0, wid_y - 2)
+            elif wid_y >= self.show_aty + vis_h:
+                self.show_aty = max(0, wid_y - vis_h + 3)
+        except Exception:
+            pass
+        super().display(*args, **kwargs)
 
-    def _controls(self, row):
+    def create(self):
+        self._page_widgets = [[], [], [], [], []]
+        self._current_page = 0
+
+        self._draw_header()
+        self._draw_nav()
+        self._create_cleanup()
+        self._create_network()
+        self._create_security()
+        self._create_settings()
+        self._create_advanced()
+
         self.status_text = self.add(
-            npyscreen.FixedText, value="Klaar.", rely=row, relx=2, color="GOOD")
-        row += 1
-        self.add(npyscreen.ButtonPress, name="[ APPLY ]",    rely=row, relx=2,
-                 when_pressed_function=self._apply)
-        self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]", rely=row, relx=14,
-                 when_pressed_function=self._view_log)
-        self.add(npyscreen.ButtonPress, name="[ QUIT ]",     rely=row, relx=28,
-                 when_pressed_function=self._quit)
+            npyscreen.FixedText, value="Klaar.", rely=28, relx=2, color="GOOD")
+        self.add(npyscreen.ButtonPress, name="[ APPLY ]",
+                 rely=29, relx=2,  when_pressed_function=self._do_apply)
+        self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
+                 rely=29, relx=14, when_pressed_function=self._view_log)
+        self.add(npyscreen.ButtonPress, name="[ QUIT ]",
+                 rely=29, relx=28, when_pressed_function=self._quit)
 
-    def _tab_keys(self):
-        self.add_handlers({
-            curses.KEY_F1: lambda _: self.parentApp.switchForm("MAIN"),
-            curses.KEY_F2: lambda _: self.parentApp.switchForm("NETWORK"),
-            curses.KEY_F3: lambda _: self.parentApp.switchForm("SECURITY"),
-            curses.KEY_F4: lambda _: self.parentApp.switchForm("SETTINGS"),
-            curses.KEY_F5: lambda _: self.parentApp.switchForm("ADVANCED"),
-        })
+        self._switch(0)
 
-    # --- shared actions ---
+    # ---- header ----
+
+    def _draw_header(self):
+        try:
+            cols = curses.COLS or 80
+        except Exception:
+            cols = 80
+
+        self.add(npyscreen.FixedText,
+                 value="PostReady v3.0".center(cols),
+                 rely=0, relx=0, color="STANDOUT")
+
+        logo_w = max(len(l) for l in LOGO)
+        logo_x = max(0, (cols - logo_w) // 2)
+        for i, line in enumerate(LOGO):
+            self.add(npyscreen.FixedText, value=line,
+                     rely=1 + i, relx=logo_x, color="LABEL")
+
+        self.add(npyscreen.FixedText,
+                 value="Linux System Preparation Tool".center(cols),
+                 rely=7, relx=0, color="LABEL")
+        self.add(npyscreen.FixedText,
+                 value="─" * (cols - 2),
+                 rely=8, relx=1, color="LABEL")
+
+    def _draw_nav(self):
+        x = 2
+        for i, name in enumerate(PAGE_NAMES):
+            lbl = f"[ {name} ]"
+            self.add(npyscreen.ButtonPress, name=lbl,
+                     rely=9, relx=x,
+                     when_pressed_function=lambda p=i: self._switch(p))
+            x += len(lbl) + 2
+        try:
+            cols = curses.COLS or 80
+        except Exception:
+            cols = 80
+        self.add(npyscreen.FixedText,
+                 value="─" * (cols - 2),
+                 rely=10, relx=1, color="LABEL")
+
+    # ---- page registration helper ----
+
+    def _pw(self, page, widget):
+        self._page_widgets[page].append(widget)
+        return widget
+
+    # ---- page 0: Cleanup ----
+
+    def _create_cleanup(self):
+        p = 0
+        self._pw(p, self.add(npyscreen.FixedText, value="[ FEATURES ]",
+                              rely=CS, relx=2, color="LABEL"))
+        self.chk_motd = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Install/Update Custom MOTD",
+            value=True, rely=CS+1, relx=4))
+        self.chk_motd_uninstall = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Uninstall Custom MOTD",
+            value=False, rely=CS+2, relx=4))
+
+        self._pw(p, self.add(npyscreen.FixedText, value="[ CLEANUP / SYSPREP ]",
+                              rely=CS+4, relx=2, color="LABEL"))
+        self.chk_history   = self._pw(p, self.add(npyscreen.Checkbox, name="Clear Bash History",             value=True,  rely=CS+5,  relx=4))
+        self.chk_logs      = self._pw(p, self.add(npyscreen.Checkbox, name="Truncate /var/log/*",             value=True,  rely=CS+6,  relx=4))
+        self.chk_apt       = self._pw(p, self.add(npyscreen.Checkbox, name="APT Clean & Autoremove",          value=True,  rely=CS+7,  relx=4))
+        self.chk_update    = self._pw(p, self.add(npyscreen.Checkbox, name="APT Update & Upgrade",            value=False, rely=CS+8,  relx=4))
+        self.chk_snap      = self._pw(p, self.add(npyscreen.Checkbox, name="Snap / Flatpak Cleanup",          value=False, rely=CS+9,  relx=4))
+        self.chk_crontab   = self._pw(p, self.add(npyscreen.Checkbox, name="Clear All Crontabs",              value=False, rely=CS+10, relx=4))
+        self.chk_docker    = self._pw(p, self.add(npyscreen.Checkbox, name="Docker System Prune",             value=False, rely=CS+11, relx=4))
+        self.chk_ssh_regen = self._pw(p, self.add(npyscreen.Checkbox, name="Regen SSH Host Keys",             value=False, rely=CS+12, relx=4))
+        self.chk_machineid = self._pw(p, self.add(npyscreen.Checkbox, name="Reset Machine-ID",                value=False, rely=CS+13, relx=4))
+        self.chk_cloudinit = self._pw(p, self.add(npyscreen.Checkbox, name="Clean Cloud-init (VM Template)",  value=False, rely=CS+14, relx=4))
+        self.chk_shutdown  = self._pw(p, self.add(npyscreen.Checkbox, name="Shutdown when complete",          value=False, rely=CS+15, relx=4))
+        self.chk_reboot    = self._pw(p, self.add(npyscreen.Checkbox, name="Reboot when complete",            value=False, rely=CS+16, relx=4))
+
+        self.chk_shutdown.when_value_edited = lambda: (
+            setattr(self.chk_reboot, 'value', False), self.display()
+        ) if self.chk_shutdown.value else None
+        self.chk_reboot.when_value_edited = lambda: (
+            setattr(self.chk_shutdown, 'value', False), self.display()
+        ) if self.chk_reboot.value else None
+
+    # ---- page 1: Network ----
+
+    def _create_network(self):
+        p = 1
+        self._pw(p, self.add(npyscreen.FixedText, value="[ NETWORK ]",
+                              rely=CS, relx=2, color="LABEL"))
+        ifaces = self._detect_ifaces()
+        self.field_iface = self._pw(p, self.add(
+            npyscreen.TitleText, name="Interface:",
+            rely=CS+1, relx=4, begin_entry_at=14,
+            value=ifaces[0] if ifaces else "eth0"))
+        self.chk_dhcp = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Enable DHCP",
+            value=True, rely=CS+2, relx=4))
+        self.chk_dhcp.when_value_edited = self._toggle_dhcp
+        self.chk_ipv6_off = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Disable IPv6",
+            value=False, rely=CS+3, relx=4))
+        self.chk_dns_override = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Override DNS (in DHCP mode)",
+            value=False, rely=CS+4, relx=4))
+        self.chk_dns_override.when_value_edited = self._toggle_dns
+        self.field_ip  = self._pw(p, self.add(
+            npyscreen.TitleText, name="IP/CIDR:",
+            rely=CS+5, relx=4, begin_entry_at=12))
+        self.field_gw  = self._pw(p, self.add(
+            npyscreen.TitleText, name="Gateway:",
+            rely=CS+6, relx=4, begin_entry_at=12))
+        self.field_dns = self._pw(p, self.add(
+            npyscreen.TitleText, name="DNS:",
+            rely=CS+7, relx=4, begin_entry_at=12))
+
+    def _detect_ifaces(self):
+        try:
+            out = subprocess.check_output(
+                "ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$'",
+                shell=True).decode().strip().split('\n')
+            return [i.strip() for i in out if i.strip()] or ["eth0"]
+        except Exception:
+            return ["eth0"]
+
+    def _selected_iface(self):
+        return self.field_iface.value.strip() or "eth0"
+
+    def _toggle_dhcp(self):
+        static = not self.chk_dhcp.value
+        for w in [self.field_ip, self.field_gw]:
+            w.hidden = not static
+            w.editable = static
+        self.chk_dns_override.hidden = static
+        self._toggle_dns()
+
+    def _toggle_dns(self):
+        show = (not self.chk_dhcp.value) or self.chk_dns_override.value
+        self.field_dns.hidden   = not show
+        self.field_dns.editable = show
+        self.display()
+
+    # ---- page 2: Security ----
+
+    def _create_security(self):
+        p = 2
+        self._pw(p, self.add(npyscreen.FixedText, value="[ SECURITY ]",
+                              rely=CS, relx=2, color="LABEL"))
+        self.chk_ssh_harden = self._pw(p, self.add(
+            npyscreen.Checkbox, name="SSH Hardening",
+            value=False, rely=CS+1, relx=4))
+        self.chk_ssh_harden.when_value_edited = self._toggle_ssh
+        self.field_ssh_port = self._pw(p, self.add(
+            npyscreen.TitleText, name="SSH Poort:", value="22",
+            rely=CS+2, relx=6, begin_entry_at=14))
+        self.chk_ssh_no_pass = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Disable Password Auth",
+            value=True, rely=CS+3, relx=6))
+        self.chk_ssh_no_root = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Disable Root Login",
+            value=True, rely=CS+4, relx=6))
+        self.chk_ufw = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Configure UFW Firewall",
+            value=False, rely=CS+6, relx=4))
+        self.chk_ufw.when_value_edited = self._toggle_ufw
+        self.field_ufw_ports = self._pw(p, self.add(
+            npyscreen.TitleText, name="Allow Ports:", value="22,80,443",
+            rely=CS+7, relx=6, begin_entry_at=14))
+        self.chk_fail2ban = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Install & Enable Fail2ban",
+            value=False, rely=CS+9, relx=4))
+        self.chk_unattended = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Enable Unattended Upgrades",
+            value=False, rely=CS+10, relx=4))
+
+    def _toggle_ssh(self):
+        show = self.chk_ssh_harden.value
+        for w in [self.field_ssh_port, self.chk_ssh_no_pass, self.chk_ssh_no_root]:
+            w.hidden   = not show
+            w.editable = show
+        self.display()
+
+    def _toggle_ufw(self):
+        self.field_ufw_ports.hidden   = not self.chk_ufw.value
+        self.field_ufw_ports.editable = self.chk_ufw.value
+        self.display()
+
+    # ---- page 3: Settings ----
+
+    def _create_settings(self):
+        p = 3
+        self._pw(p, self.add(npyscreen.FixedText, value="[ INSTELLINGEN ]",
+                              rely=CS, relx=2, color="LABEL"))
+        self.field_hostname   = self._pw(p, self.add(
+            npyscreen.TitleText,     name="Hostname:",    rely=CS+1, relx=4, begin_entry_at=16))
+        self.field_user       = self._pw(p, self.add(
+            npyscreen.TitleText,     name="New User:",    rely=CS+2, relx=4, begin_entry_at=16))
+        self.field_password   = self._pw(p, self.add(
+            npyscreen.TitlePassword, name="Password:",    rely=CS+3, relx=4, begin_entry_at=16))
+        self.field_ssh_pubkey = self._pw(p, self.add(
+            npyscreen.TitleText,     name="SSH Pub Key:", rely=CS+4, relx=4, begin_entry_at=16))
+        self.field_timezone   = self._pw(p, self.add(
+            npyscreen.TitleText,     name="Timezone:",    rely=CS+5, relx=4, begin_entry_at=16,
+            value="Europe/Amsterdam"))
+        self.field_locale     = self._pw(p, self.add(
+            npyscreen.TitleText,     name="Locale:",      rely=CS+6, relx=4, begin_entry_at=16,
+            value="en_US.UTF-8"))
+        self.field_ntp        = self._pw(p, self.add(
+            npyscreen.TitleText,     name="NTP Server:",  rely=CS+7, relx=4, begin_entry_at=16))
+        self.field_swap       = self._pw(p, self.add(
+            npyscreen.TitleText,     name="Swap (MB):",   rely=CS+8, relx=4, begin_entry_at=16,
+            value="0"))
+
+    # ---- page 4: Advanced ----
+
+    def _create_advanced(self):
+        p = 4
+        self._pw(p, self.add(npyscreen.FixedText, value="[ ADVANCED ]",
+                              rely=CS, relx=2, color="LABEL"))
+        self.field_custom_script = self._pw(p, self.add(
+            npyscreen.TitleText, name="Custom Script:",
+            rely=CS+1, relx=4, begin_entry_at=16))
+        self.chk_dryrun = self._pw(p, self.add(
+            npyscreen.Checkbox, name="Dry-run (preview only, geen wijzigingen)",
+            value=False, rely=CS+2, relx=4))
+        self._pw(p, self.add(npyscreen.FixedText, value="[ PRESETS ]",
+                              rely=CS+4, relx=2, color="LABEL"))
+        self._pw(p, self.add(npyscreen.ButtonPress, name="[ SAVE PRESET ]",
+                              rely=CS+5, relx=4,
+                              when_pressed_function=self._save_preset))
+        self._pw(p, self.add(npyscreen.ButtonPress, name="[ LOAD PRESET ]",
+                              rely=CS+5, relx=22,
+                              when_pressed_function=self._load_preset))
+
+    # ---- page switching ----
+
+    def _switch(self, page):
+        for p_idx, widgets in enumerate(self._page_widgets):
+            visible = (p_idx == page)
+            for w in widgets:
+                w.hidden = not visible
+                if not isinstance(w, npyscreen.FixedText):
+                    w.editable = visible
+        self._current_page = page
+        if page == 1:
+            self._toggle_dhcp()
+        elif page == 2:
+            self._toggle_ssh()
+            self._toggle_ufw()
+        self.show_aty = 0
+        self.display()
+
+    # ---- shared helpers ----
 
     def set_status(self, text):
         try:
@@ -119,7 +386,6 @@ class BaseTab(npyscreen.FormBaseNew):
             pass
 
     def _view_log(self):
-        self.parentApp._log_from = self.TAB_KEY
         self.parentApp.switchForm("LOG")
 
     def _quit(self):
@@ -127,11 +393,6 @@ class BaseTab(npyscreen.FormBaseNew):
                                    title="Bevestigen", editw=1):
             logging.info("User exited.")
             self.parentApp.switchForm(None)
-
-    def _apply(self):
-        self.parentApp.getForm("MAIN")._do_apply()
-
-    # --- run_cmd (dry-run aware) ---
 
     def run_cmd(self, cmd, shell=True):
         if getattr(self.parentApp, "_dryrun", False):
@@ -154,72 +415,40 @@ class BaseTab(npyscreen.FormBaseNew):
             time.sleep(1)
         return False
 
+    def _valid_ip(self, s):
+        try:
+            parts = s.split('/')
+            ipaddress.ip_address(parts[0])
+            if len(parts) == 2 and not (0 <= int(parts[1]) <= 32):
+                return False
+            return True
+        except ValueError:
+            return False
 
-# ============================================================
-# TAB 1 — CLEANUP  (also owns all exec logic)
-# ============================================================
-
-class TabCleanup(BaseTab):
-    TAB_KEY = "MAIN"
-
-    def create(self):
-        self._header()
-        row = 3
-
-        self.add(npyscreen.FixedText, value="[ FEATURES ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.chk_motd           = self.add(npyscreen.Checkbox, name="Install/Update Custom MOTD", value=True,  rely=row, relx=4); row += 1
-        self.chk_motd_uninstall = self.add(npyscreen.Checkbox, name="Uninstall Custom MOTD",       value=False, rely=row, relx=4); row += 2
-
-        self.add(npyscreen.FixedText, value="[ CLEANUP / SYSPREP ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.chk_history   = self.add(npyscreen.Checkbox, name="Clear Bash History",            value=True,  rely=row, relx=4); row += 1
-        self.chk_logs      = self.add(npyscreen.Checkbox, name="Truncate /var/log/*",            value=True,  rely=row, relx=4); row += 1
-        self.chk_apt       = self.add(npyscreen.Checkbox, name="APT Clean & Autoremove",         value=True,  rely=row, relx=4); row += 1
-        self.chk_update    = self.add(npyscreen.Checkbox, name="APT Update & Upgrade",           value=False, rely=row, relx=4); row += 1
-        self.chk_snap      = self.add(npyscreen.Checkbox, name="Snap / Flatpak Cleanup",         value=False, rely=row, relx=4); row += 1
-        self.chk_crontab   = self.add(npyscreen.Checkbox, name="Clear All Crontabs",             value=False, rely=row, relx=4); row += 1
-        self.chk_docker    = self.add(npyscreen.Checkbox, name="Docker System Prune",            value=False, rely=row, relx=4); row += 1
-        self.chk_ssh_regen = self.add(npyscreen.Checkbox, name="Regen SSH Host Keys",            value=False, rely=row, relx=4); row += 1
-        self.chk_machineid = self.add(npyscreen.Checkbox, name="Reset Machine-ID",               value=False, rely=row, relx=4); row += 1
-        self.chk_cloudinit = self.add(npyscreen.Checkbox, name="Clean Cloud-init (VM Template)", value=False, rely=row, relx=4); row += 1
-        self.chk_shutdown  = self.add(npyscreen.Checkbox, name="Shutdown when complete",         value=False, rely=row, relx=4)
-        self.chk_shutdown.when_value_edited = lambda: (setattr(self.chk_reboot, 'value', False), self.display()) if self.chk_shutdown.value else None
-        row += 1
-        self.chk_reboot    = self.add(npyscreen.Checkbox, name="Reboot when complete",           value=False, rely=row, relx=4)
-        self.chk_reboot.when_value_edited = lambda: (setattr(self.chk_shutdown, 'value', False), self.display()) if self.chk_reboot.value else None
-        row += 1
-
-        self._controls(row)
-        self._tab_keys()
-
-    # --------------------------------------------------------
+    # ============================================================
     # APPLY
-    # --------------------------------------------------------
+    # ============================================================
 
     def _do_apply(self):
-        net = self.parentApp.getForm("NETWORK")
-        sec = self.parentApp.getForm("SECURITY")
-        cfg = self.parentApp.getForm("SETTINGS")
-        adv = self.parentApp.getForm("ADVANCED")
-        self.parentApp._dryrun = adv.chk_dryrun.value
+        self.parentApp._dryrun = self.chk_dryrun.value
 
-        # Validate
         if self.chk_motd.value and self.chk_motd_uninstall.value:
             npyscreen.notify_confirm("Kan MOTD niet tegelijk installeren en verwijderen.", title="Fout")
             return
-        if not net.chk_dhcp.value:
-            if not all([net.field_ip.value, net.field_gw.value, net.field_dns.value]):
+        if not self.chk_dhcp.value:
+            if not all([self.field_ip.value, self.field_gw.value, self.field_dns.value]):
                 npyscreen.notify_confirm("Statisch IP vereist: IP, Gateway en DNS.", title="Fout")
-                self.parentApp.switchForm("NETWORK"); return
-            if not self._valid_ip(net.field_ip.value.strip()):
+                self._switch(1); return
+            if not self._valid_ip(self.field_ip.value.strip()):
                 npyscreen.notify_confirm("Ongeldig IP-formaat.", title="Fout")
-                self.parentApp.switchForm("NETWORK"); return
-        if sec.chk_ssh_harden.value:
+                self._switch(1); return
+        if self.chk_ssh_harden.value:
             try:
-                p = int(sec.field_ssh_port.value.strip())
-                if not (1 <= p <= 65535): raise ValueError
+                port = int(self.field_ssh_port.value.strip())
+                if not (1 <= port <= 65535): raise ValueError
             except ValueError:
                 npyscreen.notify_confirm("Ongeldige SSH-poort.", title="Fout")
-                self.parentApp.switchForm("SECURITY"); return
+                self._switch(2); return
 
         if self.chk_history.value:
             if not npyscreen.notify_yes_no(
@@ -228,12 +457,17 @@ class TabCleanup(BaseTab):
                 title="Waarschuwing", editw=1): return
 
         dry = " [DRY-RUN]" if self.parentApp._dryrun else ""
-        if not npyscreen.notify_yes_no(f"Wijzigingen toepassen?{dry}", title="Bevestigen", editw=1):
+        if not npyscreen.notify_yes_no(f"Wijzigingen toepassen?{dry}",
+                                       title="Bevestigen", editw=1):
             return
 
         logging.info(f"--- START (dryrun={self.parentApp._dryrun}) ---")
-        steps = [("Cleanup…", self.exec_cleanup), ("Netwerk…", self.exec_network),
-                 ("Beveiliging…", self.exec_security), ("Systeem…", self.exec_system)]
+        steps = [
+            ("Cleanup…",     self.exec_cleanup),
+            ("Netwerk…",     self.exec_network),
+            ("Beveiliging…", self.exec_security),
+            ("Systeem…",     self.exec_system),
+        ]
         for i, (lbl, fn) in enumerate(steps, 1):
             self.set_status(f"Stap {i}/{len(steps)}: {lbl}")
             fn()
@@ -246,7 +480,7 @@ class TabCleanup(BaseTab):
             else:
                 npyscreen.notify_confirm("Netwerk niet bereikbaar. MOTD overgeslagen.", title="Waarschuwing")
 
-        script = adv.field_custom_script.value.strip()
+        script = self.field_custom_script.value.strip()
         if script:
             self.set_status("Custom script…")
             self.exec_custom_script(script)
@@ -265,18 +499,9 @@ class TabCleanup(BaseTab):
 
         self.parentApp.switchForm(None)
 
-    def _valid_ip(self, s):
-        try:
-            parts = s.split('/')
-            ipaddress.ip_address(parts[0])
-            if len(parts) == 2 and not (0 <= int(parts[1]) <= 32): return False
-            return True
-        except ValueError:
-            return False
-
-    # --------------------------------------------------------
+    # ============================================================
     # EXEC — cleanup
-    # --------------------------------------------------------
+    # ============================================================
 
     def exec_cleanup(self):
         if self.chk_logs.value:
@@ -307,8 +532,9 @@ class TabCleanup(BaseTab):
                     pkgs = subprocess.check_output(
                         "snap list --all | awk 'NR>1 {print $1}' | sort -u",
                         shell=True, text=True).strip().split('\n')
-                    for p in pkgs:
-                        if p.strip(): self.run_cmd(f"snap remove --purge {p.strip()} 2>/dev/null || true")
+                    for pkg in pkgs:
+                        if pkg.strip():
+                            self.run_cmd(f"snap remove --purge {pkg.strip()} 2>/dev/null || true")
                 except Exception: pass
             if shutil.which("flatpak"):
                 self.run_cmd("flatpak uninstall --all --noninteractive 2>/dev/null || true")
@@ -337,35 +563,38 @@ class TabCleanup(BaseTab):
             self.run_cmd("ln -sf /etc/machine-id /var/lib/dbus/machine-id 2>/dev/null || true")
 
         if self.chk_cloudinit.value:
-            if shutil.which("cloud-init"): self.run_cmd("cloud-init clean --logs --seed")
-            for p in ["/var/lib/cloud/",
-                      "/etc/cloud/cloud.cfg.d/99-installer.cfg",
-                      "/etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg",
-                      "/var/log/cloud-init.log", "/var/log/cloud-init-output.log"]:
-                if os.path.exists(p):
-                    try: shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+            if shutil.which("cloud-init"):
+                self.run_cmd("cloud-init clean --logs --seed")
+            for path in ["/var/lib/cloud/",
+                         "/etc/cloud/cloud.cfg.d/99-installer.cfg",
+                         "/etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg",
+                         "/var/log/cloud-init.log", "/var/log/cloud-init-output.log"]:
+                if os.path.exists(path):
+                    try: shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
                     except Exception: pass
 
         if self.chk_history.value:
             self.run_cmd("find /root /home -name '.bash_history' -type f -exec truncate -s 0 {} \\; 2>/dev/null || true")
             self.run_cmd("sleep 1 && pkill -9 bash 2>/dev/null || true")
 
-    # --------------------------------------------------------
+    # ============================================================
     # EXEC — network
-    # --------------------------------------------------------
+    # ============================================================
 
     def exec_network(self):
-        net = self.parentApp.getForm("NETWORK")
-        iface = net._selected_iface()
+        iface   = self._selected_iface()
         netplan = "/etc/netplan/99-postready.yaml"
 
-        if net.chk_dhcp.value:
-            content = f"network:\n  version: 2\n  ethernets:\n    {iface}:\n      dhcp4: true\n"
+        if self.chk_dhcp.value:
+            content = (
+                f"network:\n  version: 2\n  ethernets:\n"
+                f"    {iface}:\n      dhcp4: true\n"
+            )
         else:
-            ip  = net.field_ip.value.strip()
+            ip  = self.field_ip.value.strip()
             ip  = ip if "/" in ip else f"{ip}/24"
-            gw  = net.field_gw.value.strip()
-            dns = net.field_dns.value.strip()
+            gw  = self.field_gw.value.strip()
+            dns = self.field_dns.value.strip()
             content = (
                 f"network:\n  version: 2\n  ethernets:\n    {iface}:\n"
                 f"      dhcp4: false\n      addresses: [{ip}]\n"
@@ -383,15 +612,15 @@ class TabCleanup(BaseTab):
         except Exception as e:
             logging.error(f"Netplan error: {e}")
 
-        if net.chk_dhcp.value and net.chk_dns_override.value and net.field_dns.value.strip():
+        if self.chk_dhcp.value and self.chk_dns_override.value and self.field_dns.value.strip():
             try:
                 Path("/etc/systemd/resolved.conf").write_text(
-                    f"[Resolve]\nDNS={net.field_dns.value.strip()}\n")
+                    f"[Resolve]\nDNS={self.field_dns.value.strip()}\n")
                 self.run_cmd("systemctl restart systemd-resolved")
             except Exception as e:
                 logging.error(f"DNS override: {e}")
 
-        if net.chk_ipv6_off.value:
+        if self.chk_ipv6_off.value:
             try:
                 Path("/etc/sysctl.d/99-disable-ipv6.conf").write_text(
                     "net.ipv6.conf.all.disable_ipv6 = 1\n"
@@ -401,93 +630,95 @@ class TabCleanup(BaseTab):
             except Exception as e:
                 logging.error(f"IPv6 disable: {e}")
 
-    # --------------------------------------------------------
+    # ============================================================
     # EXEC — security
-    # --------------------------------------------------------
+    # ============================================================
 
     def exec_security(self):
-        sec = self.parentApp.getForm("SECURITY")
-
-        if sec.chk_ssh_harden.value:
+        if self.chk_ssh_harden.value:
             try:
                 cfg = Path("/etc/ssh/sshd_config").read_text()
-                port = sec.field_ssh_port.value.strip()
+                port = self.field_ssh_port.value.strip()
                 cfg = re.sub(r'^#?Port\s+\d+', f'Port {port}', cfg, flags=re.MULTILINE)
-                if not re.search(r'^Port\s+', cfg, re.MULTILINE): cfg += f'\nPort {port}\n'
-                if sec.chk_ssh_no_pass.value:
-                    cfg = re.sub(r'^#?PasswordAuthentication\s+\w+', 'PasswordAuthentication no', cfg, flags=re.MULTILINE)
-                    if not re.search(r'^PasswordAuthentication\s+', cfg, re.MULTILINE): cfg += '\nPasswordAuthentication no\n'
-                if sec.chk_ssh_no_root.value:
-                    cfg = re.sub(r'^#?PermitRootLogin\s+\w+', 'PermitRootLogin no', cfg, flags=re.MULTILINE)
-                    if not re.search(r'^PermitRootLogin\s+', cfg, re.MULTILINE): cfg += '\nPermitRootLogin no\n'
+                if not re.search(r'^Port\s+', cfg, re.MULTILINE):
+                    cfg += f'\nPort {port}\n'
+                if self.chk_ssh_no_pass.value:
+                    cfg = re.sub(r'^#?PasswordAuthentication\s+\w+',
+                                 'PasswordAuthentication no', cfg, flags=re.MULTILINE)
+                    if not re.search(r'^PasswordAuthentication\s+', cfg, re.MULTILINE):
+                        cfg += '\nPasswordAuthentication no\n'
+                if self.chk_ssh_no_root.value:
+                    cfg = re.sub(r'^#?PermitRootLogin\s+\w+',
+                                 'PermitRootLogin no', cfg, flags=re.MULTILINE)
+                    if not re.search(r'^PermitRootLogin\s+', cfg, re.MULTILINE):
+                        cfg += '\nPermitRootLogin no\n'
                 Path("/etc/ssh/sshd_config").write_text(cfg)
                 self.run_cmd("systemctl restart sshd || systemctl restart ssh")
             except Exception as e:
                 logging.error(f"SSH harden: {e}")
 
-        if sec.chk_ufw.value:
+        if self.chk_ufw.value:
             self.run_cmd("apt-get install -y ufw 2>/dev/null || true")
             self.run_cmd("ufw --force reset")
             self.run_cmd("ufw default deny incoming")
             self.run_cmd("ufw default allow outgoing")
-            for p in sec.field_ufw_ports.value.strip().split(','):
-                if p.strip(): self.run_cmd(f"ufw allow {p.strip()}")
+            for port in self.field_ufw_ports.value.strip().split(','):
+                if port.strip(): self.run_cmd(f"ufw allow {port.strip()}")
             self.run_cmd("ufw --force enable")
 
-        if sec.chk_fail2ban.value:
+        if self.chk_fail2ban.value:
             self.run_cmd("apt-get install -y fail2ban")
             self.run_cmd("systemctl enable --now fail2ban")
 
-        if sec.chk_unattended.value:
+        if self.chk_unattended.value:
             self.run_cmd("apt-get install -y unattended-upgrades")
             self.run_cmd("dpkg-reconfigure -plow unattended-upgrades")
 
-    # --------------------------------------------------------
+    # ============================================================
     # EXEC — system
-    # --------------------------------------------------------
+    # ============================================================
 
     def exec_system(self):
-        cfg = self.parentApp.getForm("SETTINGS")
-
-        if cfg.field_hostname.value.strip():
-            h = cfg.field_hostname.value.strip()
+        if self.field_hostname.value.strip():
+            h = self.field_hostname.value.strip()
             self.run_cmd(f"hostnamectl set-hostname {h}")
             self.run_cmd(f"sed -i 's/127.0.1.1.*/127.0.1.1\\t{h}/' /etc/hosts")
 
-        if cfg.field_timezone.value.strip():
-            self.run_cmd(f"timedatectl set-timezone {cfg.field_timezone.value.strip()}")
+        if self.field_timezone.value.strip():
+            self.run_cmd(f"timedatectl set-timezone {self.field_timezone.value.strip()}")
 
-        if cfg.field_locale.value.strip():
-            lc = cfg.field_locale.value.strip()
+        if self.field_locale.value.strip():
+            lc = self.field_locale.value.strip()
             self.run_cmd(f"locale-gen {lc}")
             self.run_cmd(f"update-locale LANG={lc}")
 
-        if cfg.field_ntp.value.strip():
+        if self.field_ntp.value.strip():
             try:
                 Path("/etc/systemd/timesyncd.conf").write_text(
-                    f"[Time]\nNTP={cfg.field_ntp.value.strip()}\n")
+                    f"[Time]\nNTP={self.field_ntp.value.strip()}\n")
                 self.run_cmd("systemctl restart systemd-timesyncd")
             except Exception as e:
                 logging.error(f"NTP: {e}")
 
         try:
-            swap_mb = int(cfg.field_swap.value.strip())
+            swap_mb = int(self.field_swap.value.strip())
             if swap_mb > 0: self._exec_swap(swap_mb)
         except (ValueError, AttributeError): pass
 
-        user = cfg.field_user.value.strip()
+        user = self.field_user.value.strip()
         if user:
             try:
-                subprocess.run(f"id -u {user}", shell=True, check=True, stdout=subprocess.DEVNULL)
+                subprocess.run(f"id -u {user}", shell=True, check=True,
+                               stdout=subprocess.DEVNULL)
             except subprocess.CalledProcessError:
                 self.run_cmd(f"useradd -m -s /bin/bash {user}")
                 self.run_cmd(f"usermod -aG sudo {user}")
 
-            if cfg.field_password.value:
+            if self.field_password.value:
                 if not self.parentApp._dryrun:
                     try:
                         subprocess.run("chpasswd",
-                                       input=f"{user}:{cfg.field_password.value}".encode(),
+                                       input=f"{user}:{self.field_password.value}".encode(),
                                        shell=True, check=True, capture_output=True)
                         logging.info(f"Password set for {user}")
                     except Exception as e:
@@ -495,22 +726,23 @@ class TabCleanup(BaseTab):
                 else:
                     logging.info(f"[DRY-RUN] would set password for {user}")
 
-            if cfg.field_ssh_pubkey.value.strip():
+            if self.field_ssh_pubkey.value.strip():
                 try:
                     home = subprocess.check_output(
-                        f"getent passwd {user} | cut -d: -f6", shell=True, text=True).strip()
+                        f"getent passwd {user} | cut -d: -f6",
+                        shell=True, text=True).strip()
                     ssh_dir = Path(home) / ".ssh"
                     ssh_dir.mkdir(mode=0o700, exist_ok=True)
                     auth = ssh_dir / "authorized_keys"
                     with open(auth, 'a') as f:
-                        f.write(f"{cfg.field_ssh_pubkey.value.strip()}\n")
+                        f.write(f"{self.field_ssh_pubkey.value.strip()}\n")
                     os.chmod(auth, 0o600)
                     self.run_cmd(f"chown -R {user}:{user} {ssh_dir}")
                 except Exception as e:
                     logging.error(f"SSH pubkey: {e}")
 
             if self.chk_motd.value and not self.chk_motd_uninstall.value:
-                sf = f"/etc/sudoers.d/{user}"
+                sf   = f"/etc/sudoers.d/{user}"
                 rule = f"{user} ALL=(root) NOPASSWD: {MOTD_INSTALL}\n"
                 try:
                     if not Path(sf).exists() or Path(sf).read_text() != rule:
@@ -528,13 +760,14 @@ class TabCleanup(BaseTab):
         try:
             fstab = Path("/etc/fstab").read_text()
             if sw not in fstab:
-                with open("/etc/fstab", 'a') as f: f.write(f"\n{sw} none swap sw 0 0\n")
+                with open("/etc/fstab", 'a') as f:
+                    f.write(f"\n{sw} none swap sw 0 0\n")
         except Exception as e:
             logging.error(f"fstab: {e}")
 
-    # --------------------------------------------------------
+    # ============================================================
     # EXEC — MOTD
-    # --------------------------------------------------------
+    # ============================================================
 
     def exec_motd(self):
         if not shutil.which("git"):
@@ -582,8 +815,7 @@ class TabCleanup(BaseTab):
             except Exception as e:
                 logging.error(f"uninstall.sh: {e}")
 
-        cfg = self.parentApp.getForm("SETTINGS")
-        user = cfg.field_user.value.strip()
+        user = self.field_user.value.strip()
         if user:
             sf = f"/etc/sudoers.d/{user}"
             if os.path.exists(sf):
@@ -605,172 +837,29 @@ class TabCleanup(BaseTab):
         except Exception as e:
             logging.error(f"Custom script: {e}")
 
+    # ============================================================
+    # PRESETS
+    # ============================================================
 
-# ============================================================
-# TAB 2 — NETWORK
-# ============================================================
-
-class TabNetwork(BaseTab):
-    TAB_KEY = "NETWORK"
-
-    def create(self):
-        self._header()
-        row = 3
-
-        self.add(npyscreen.FixedText, value="[ NETWORK ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.all_ifaces = self._detect_ifaces()
-        default_iface = self.all_ifaces[0] if self.all_ifaces else "eth0"
-        self.field_iface = self.add(
-            npyscreen.TitleText, name="Interface:", rely=row, relx=4,
-            begin_entry_at=14, value=default_iface)
-        row += 1
-
-        self.chk_dhcp = self.add(npyscreen.Checkbox, name="Enable DHCP", value=True, rely=row, relx=4)
-        self.chk_dhcp.when_value_edited = self._tog_static; row += 1
-        self.chk_ipv6_off = self.add(npyscreen.Checkbox, name="Disable IPv6", value=False, rely=row, relx=4); row += 1
-        self.chk_dns_override = self.add(npyscreen.Checkbox, name="Override DNS (in DHCP mode)", value=False, rely=row, relx=4)
-        self.chk_dns_override.when_value_edited = self._tog_dns; row += 1
-
-        self.field_ip  = self.add(npyscreen.TitleText, name="IP/CIDR:", rely=row, relx=4, hidden=True, begin_entry_at=12); row += 1
-        self.field_gw  = self.add(npyscreen.TitleText, name="Gateway:", rely=row, relx=4, hidden=True, begin_entry_at=12); row += 1
-        self.field_dns = self.add(npyscreen.TitleText, name="DNS:",     rely=row, relx=4, hidden=True, begin_entry_at=12); row += 2
-
-        self._controls(row)
-        self._tab_keys()
-        self._tog_static()
-
-    def _detect_ifaces(self):
-        try:
-            out = subprocess.check_output(
-                "ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$'",
-                shell=True).decode().strip().split('\n')
-            return [i.strip() for i in out if i.strip()] or ["eth0"]
-        except Exception:
-            return ["eth0"]
-
-    def _selected_iface(self):
-        return self.field_iface.value.strip() or "eth0"
-
-    def _tog_static(self):
-        static = not self.chk_dhcp.value
-        for w in [self.field_ip, self.field_gw]:
-            w.hidden = not static; w.editable = static
-        self.chk_dns_override.hidden = static
-        self._tog_dns()
-
-    def _tog_dns(self):
-        show = (not self.chk_dhcp.value) or self.chk_dns_override.value
-        self.field_dns.hidden = not show
-        self.field_dns.editable = show
-        self.display()
-
-
-# ============================================================
-# TAB 3 — SECURITY
-# ============================================================
-
-class TabSecurity(BaseTab):
-    TAB_KEY = "SECURITY"
-
-    def create(self):
-        self._header()
-        row = 3
-
-        self.add(npyscreen.FixedText, value="[ SECURITY ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.chk_ssh_harden = self.add(npyscreen.Checkbox, name="SSH Hardening", value=False, rely=row, relx=4)
-        self.chk_ssh_harden.when_value_edited = self._tog_ssh; row += 1
-        self.field_ssh_port  = self.add(npyscreen.TitleText, name="SSH Poort:", rely=row, relx=6, hidden=True, begin_entry_at=14, value="22"); row += 1
-        self.chk_ssh_no_pass = self.add(npyscreen.Checkbox, name="Disable Password Auth", value=True, rely=row, relx=6, hidden=True); row += 1
-        self.chk_ssh_no_root = self.add(npyscreen.Checkbox, name="Disable Root Login",    value=True, rely=row, relx=6, hidden=True); row += 2
-
-        self.chk_ufw = self.add(npyscreen.Checkbox, name="Configure UFW Firewall", value=False, rely=row, relx=4)
-        self.chk_ufw.when_value_edited = self._tog_ufw; row += 1
-        self.field_ufw_ports = self.add(npyscreen.TitleText, name="Allow Ports:", rely=row, relx=6, hidden=True, begin_entry_at=14, value="22,80,443"); row += 2
-
-        self.chk_fail2ban   = self.add(npyscreen.Checkbox, name="Install & Enable Fail2ban",   value=False, rely=row, relx=4); row += 1
-        self.chk_unattended = self.add(npyscreen.Checkbox, name="Enable Unattended Upgrades",  value=False, rely=row, relx=4); row += 2
-
-        self._controls(row)
-        self._tab_keys()
-
-    def _tog_ssh(self):
-        show = self.chk_ssh_harden.value
-        for w in [self.field_ssh_port, self.chk_ssh_no_pass, self.chk_ssh_no_root]:
-            w.hidden = not show; w.editable = show
-        self.display()
-
-    def _tog_ufw(self):
-        self.field_ufw_ports.hidden = not self.chk_ufw.value
-        self.field_ufw_ports.editable = self.chk_ufw.value
-        self.display()
-
-
-# ============================================================
-# TAB 4 — SETTINGS
-# ============================================================
-
-class TabSettings(BaseTab):
-    TAB_KEY = "SETTINGS"
-
-    def create(self):
-        self._header()
-        row = 3
-
-        self.add(npyscreen.FixedText, value="[ INSTELLINGEN ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.field_hostname   = self.add(npyscreen.TitleText,     name="Hostname:",    rely=row, relx=4, begin_entry_at=16); row += 1
-        self.field_user       = self.add(npyscreen.TitleText,     name="New User:",    rely=row, relx=4, begin_entry_at=16); row += 1
-        self.field_password   = self.add(npyscreen.TitlePassword, name="Password:",    rely=row, relx=4, begin_entry_at=16); row += 1
-        self.field_ssh_pubkey = self.add(npyscreen.TitleText,     name="SSH Pub Key:", rely=row, relx=4, begin_entry_at=16); row += 1
-        self.field_timezone   = self.add(npyscreen.TitleText,     name="Timezone:",    rely=row, relx=4, begin_entry_at=16, value="Europe/Amsterdam"); row += 1
-        self.field_locale     = self.add(npyscreen.TitleText,     name="Locale:",      rely=row, relx=4, begin_entry_at=16, value="en_US.UTF-8"); row += 1
-        self.field_ntp        = self.add(npyscreen.TitleText,     name="NTP Server:",  rely=row, relx=4, begin_entry_at=16); row += 1
-        self.field_swap       = self.add(npyscreen.TitleText,     name="Swap (MB):",   rely=row, relx=4, begin_entry_at=16, value="0"); row += 2
-
-        self._controls(row)
-        self._tab_keys()
-
-
-# ============================================================
-# TAB 5 — ADVANCED  (also owns preset logic)
-# ============================================================
-
-class TabAdvanced(BaseTab):
-    TAB_KEY = "ADVANCED"
-
-    def create(self):
-        self._header()
-        row = 3
-
-        self.add(npyscreen.FixedText, value="[ ADVANCED ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.field_custom_script = self.add(npyscreen.TitleText, name="Custom Script:", rely=row, relx=4, begin_entry_at=16); row += 1
-        self.chk_dryrun = self.add(npyscreen.Checkbox, name="Dry-run (preview only, geen wijzigingen)", value=False, rely=row, relx=4); row += 2
-
-        self.add(npyscreen.FixedText, value="[ PRESETS ]", rely=row, relx=2, color="LABEL"); row += 1
-        self.add(npyscreen.ButtonPress, name="[ SAVE PRESET ]", rely=row, relx=4,  when_pressed_function=self._save)
-        self.add(npyscreen.ButtonPress, name="[ LOAD PRESET ]", rely=row, relx=22, when_pressed_function=self._load); row += 2
-
-        self._controls(row)
-        self._tab_keys()
-
-    # --- preset helpers ---
-
-    def _save(self):
+    def _save_preset(self):
         name = npyscreen.notify_input("Naam voor deze preset:", title="Preset opslaan")
         if not name or not name.strip(): return
         name = name.strip()
         try:
             Path(PRESET_DIR).mkdir(parents=True, exist_ok=True)
-            data = self._gather(); data["name"] = name
+            data = self._gather_preset()
+            data["name"] = name
             (Path(PRESET_DIR) / f"{name}.json").write_text(json.dumps(data, indent=2))
             npyscreen.notify_confirm(f"Preset '{name}' opgeslagen.", title="Opgeslagen")
             logging.info(f"Preset saved: {name}")
         except Exception as e:
             npyscreen.notify_confirm(f"Fout: {e}", title="Error")
 
-    def _load(self):
+    def _load_preset(self):
         presets = sorted(Path(PRESET_DIR).glob("*.json")) if Path(PRESET_DIR).exists() else []
         if not presets:
-            npyscreen.notify_confirm("Geen presets gevonden in " + PRESET_DIR, title="Info"); return
+            npyscreen.notify_confirm("Geen presets gevonden in " + PRESET_DIR, title="Info")
+            return
         listing = "\n".join(f"{i+1}. {p.stem}" for i, p in enumerate(presets))
         choice = npyscreen.notify_input(f"Kies nummer:\n{listing}", title="Preset laden")
         if not choice or not choice.strip(): return
@@ -779,81 +868,92 @@ class TabAdvanced(BaseTab):
             if not (0 <= idx < len(presets)):
                 npyscreen.notify_confirm("Ongeldig nummer.", title="Fout"); return
             data = json.loads(presets[idx].read_text())
-            self._apply(data)
+            self._apply_preset(data)
             npyscreen.notify_confirm(f"Preset '{presets[idx].stem}' geladen.", title="Geladen")
         except Exception as e:
             npyscreen.notify_confirm(f"Fout: {e}", title="Error")
 
-    def _gather(self):
-        cl  = self.parentApp.getForm("MAIN")
-        net = self.parentApp.getForm("NETWORK")
-        sec = self.parentApp.getForm("SECURITY")
-        cfg = self.parentApp.getForm("SETTINGS")
+    def _gather_preset(self):
         return {
-            "motd": cl.chk_motd.value, "motd_uninstall": cl.chk_motd_uninstall.value,
-            "history": cl.chk_history.value, "logs": cl.chk_logs.value,
-            "apt": cl.chk_apt.value, "update": cl.chk_update.value,
-            "snap": cl.chk_snap.value, "crontab": cl.chk_crontab.value,
-            "docker": cl.chk_docker.value, "ssh_regen": cl.chk_ssh_regen.value,
-            "machineid": cl.chk_machineid.value, "cloudinit": cl.chk_cloudinit.value,
-            "shutdown": cl.chk_shutdown.value, "reboot": cl.chk_reboot.value,
-            "dhcp": net.chk_dhcp.value, "ipv6_off": net.chk_ipv6_off.value,
-            "dns_override": net.chk_dns_override.value,
-            "ip": net.field_ip.value, "gw": net.field_gw.value, "dns": net.field_dns.value,
-            "ssh_harden": sec.chk_ssh_harden.value, "ssh_port": sec.field_ssh_port.value,
-            "ssh_no_pass": sec.chk_ssh_no_pass.value, "ssh_no_root": sec.chk_ssh_no_root.value,
-            "ufw": sec.chk_ufw.value, "ufw_ports": sec.field_ufw_ports.value,
-            "fail2ban": sec.chk_fail2ban.value, "unattended": sec.chk_unattended.value,
-            "hostname": cfg.field_hostname.value, "user": cfg.field_user.value,
-            "timezone": cfg.field_timezone.value, "locale": cfg.field_locale.value,
-            "ntp": cfg.field_ntp.value, "swap": cfg.field_swap.value,
-            "custom_script": self.field_custom_script.value, "dryrun": self.chk_dryrun.value,
+            "motd":            self.chk_motd.value,
+            "motd_uninstall":  self.chk_motd_uninstall.value,
+            "history":         self.chk_history.value,
+            "logs":            self.chk_logs.value,
+            "apt":             self.chk_apt.value,
+            "update":          self.chk_update.value,
+            "snap":            self.chk_snap.value,
+            "crontab":         self.chk_crontab.value,
+            "docker":          self.chk_docker.value,
+            "ssh_regen":       self.chk_ssh_regen.value,
+            "machineid":       self.chk_machineid.value,
+            "cloudinit":       self.chk_cloudinit.value,
+            "shutdown":        self.chk_shutdown.value,
+            "reboot":          self.chk_reboot.value,
+            "dhcp":            self.chk_dhcp.value,
+            "ipv6_off":        self.chk_ipv6_off.value,
+            "dns_override":    self.chk_dns_override.value,
+            "ip":              self.field_ip.value,
+            "gw":              self.field_gw.value,
+            "dns":             self.field_dns.value,
+            "ssh_harden":      self.chk_ssh_harden.value,
+            "ssh_port":        self.field_ssh_port.value,
+            "ssh_no_pass":     self.chk_ssh_no_pass.value,
+            "ssh_no_root":     self.chk_ssh_no_root.value,
+            "ufw":             self.chk_ufw.value,
+            "ufw_ports":       self.field_ufw_ports.value,
+            "fail2ban":        self.chk_fail2ban.value,
+            "unattended":      self.chk_unattended.value,
+            "hostname":        self.field_hostname.value,
+            "user":            self.field_user.value,
+            "timezone":        self.field_timezone.value,
+            "locale":          self.field_locale.value,
+            "ntp":             self.field_ntp.value,
+            "swap":            self.field_swap.value,
+            "custom_script":   self.field_custom_script.value,
+            "dryrun":          self.chk_dryrun.value,
         }
 
-    def _apply(self, s):
-        cl  = self.parentApp.getForm("MAIN")
-        net = self.parentApp.getForm("NETWORK")
-        sec = self.parentApp.getForm("SECURITY")
-        cfg = self.parentApp.getForm("SETTINGS")
-        cl.chk_motd.value           = s.get("motd", True)
-        cl.chk_motd_uninstall.value = s.get("motd_uninstall", False)
-        cl.chk_history.value        = s.get("history", True)
-        cl.chk_logs.value           = s.get("logs", True)
-        cl.chk_apt.value            = s.get("apt", True)
-        cl.chk_update.value         = s.get("update", False)
-        cl.chk_snap.value           = s.get("snap", False)
-        cl.chk_crontab.value        = s.get("crontab", False)
-        cl.chk_docker.value         = s.get("docker", False)
-        cl.chk_ssh_regen.value      = s.get("ssh_regen", False)
-        cl.chk_machineid.value      = s.get("machineid", False)
-        cl.chk_cloudinit.value      = s.get("cloudinit", False)
-        cl.chk_shutdown.value       = s.get("shutdown", False)
-        cl.chk_reboot.value         = s.get("reboot", False)
-        net.chk_dhcp.value          = s.get("dhcp", True)
-        net.chk_ipv6_off.value      = s.get("ipv6_off", False)
-        net.chk_dns_override.value  = s.get("dns_override", False)
-        net.field_ip.value          = s.get("ip", "")
-        net.field_gw.value          = s.get("gw", "")
-        net.field_dns.value         = s.get("dns", "")
-        sec.chk_ssh_harden.value    = s.get("ssh_harden", False)
-        sec.field_ssh_port.value    = s.get("ssh_port", "22")
-        sec.chk_ssh_no_pass.value   = s.get("ssh_no_pass", True)
-        sec.chk_ssh_no_root.value   = s.get("ssh_no_root", True)
-        sec.chk_ufw.value           = s.get("ufw", False)
-        sec.field_ufw_ports.value   = s.get("ufw_ports", "22,80,443")
-        sec.chk_fail2ban.value      = s.get("fail2ban", False)
-        sec.chk_unattended.value    = s.get("unattended", False)
-        cfg.field_hostname.value    = s.get("hostname", "")
-        cfg.field_user.value        = s.get("user", "")
-        cfg.field_timezone.value    = s.get("timezone", "Europe/Amsterdam")
-        cfg.field_locale.value      = s.get("locale", "en_US.UTF-8")
-        cfg.field_ntp.value         = s.get("ntp", "")
-        cfg.field_swap.value        = s.get("swap", "0")
+    def _apply_preset(self, s):
+        self.chk_motd.value            = s.get("motd", True)
+        self.chk_motd_uninstall.value  = s.get("motd_uninstall", False)
+        self.chk_history.value         = s.get("history", True)
+        self.chk_logs.value            = s.get("logs", True)
+        self.chk_apt.value             = s.get("apt", True)
+        self.chk_update.value          = s.get("update", False)
+        self.chk_snap.value            = s.get("snap", False)
+        self.chk_crontab.value         = s.get("crontab", False)
+        self.chk_docker.value          = s.get("docker", False)
+        self.chk_ssh_regen.value       = s.get("ssh_regen", False)
+        self.chk_machineid.value       = s.get("machineid", False)
+        self.chk_cloudinit.value       = s.get("cloudinit", False)
+        self.chk_shutdown.value        = s.get("shutdown", False)
+        self.chk_reboot.value          = s.get("reboot", False)
+        self.chk_dhcp.value            = s.get("dhcp", True)
+        self.chk_ipv6_off.value        = s.get("ipv6_off", False)
+        self.chk_dns_override.value    = s.get("dns_override", False)
+        self.field_ip.value            = s.get("ip", "")
+        self.field_gw.value            = s.get("gw", "")
+        self.field_dns.value           = s.get("dns", "")
+        self.chk_ssh_harden.value      = s.get("ssh_harden", False)
+        self.field_ssh_port.value      = s.get("ssh_port", "22")
+        self.chk_ssh_no_pass.value     = s.get("ssh_no_pass", True)
+        self.chk_ssh_no_root.value     = s.get("ssh_no_root", True)
+        self.chk_ufw.value             = s.get("ufw", False)
+        self.field_ufw_ports.value     = s.get("ufw_ports", "22,80,443")
+        self.chk_fail2ban.value        = s.get("fail2ban", False)
+        self.chk_unattended.value      = s.get("unattended", False)
+        self.field_hostname.value      = s.get("hostname", "")
+        self.field_user.value          = s.get("user", "")
+        self.field_timezone.value      = s.get("timezone", "Europe/Amsterdam")
+        self.field_locale.value        = s.get("locale", "en_US.UTF-8")
+        self.field_ntp.value           = s.get("ntp", "")
+        self.field_swap.value          = s.get("swap", "0")
         self.field_custom_script.value = s.get("custom_script", "")
-        self.chk_dryrun.value       = s.get("dryrun", False)
-        net._tog_static()
-        sec._tog_ssh()
-        sec._tog_ufw()
+        self.chk_dryrun.value          = s.get("dryrun", False)
+        self._toggle_dhcp()
+        self._toggle_ssh()
+        self._toggle_ufw()
+        self.display()
 
 
 # ============================================================
@@ -862,12 +962,9 @@ class TabAdvanced(BaseTab):
 
 class PostReadyApp(npyscreen.NPSAppManaged):
     def onStart(self):
-        self.addForm("MAIN",     TabCleanup)
-        self.addForm("NETWORK",  TabNetwork)
-        self.addForm("SECURITY", TabSecurity)
-        self.addForm("SETTINGS", TabSettings)
-        self.addForm("ADVANCED", TabAdvanced)
-        self.addForm("LOG",      LogViewerForm)
+        self._dryrun = False
+        self.addForm("MAIN", PostReadyForm)
+        self.addForm("LOG",  LogViewerForm)
 
 
 if __name__ == "__main__":
