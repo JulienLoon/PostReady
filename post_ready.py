@@ -153,15 +153,22 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def handle_exiting_widgets(self, condition):
         w = self._widgets__[self.editw]
+
+        # DOWN from NavButton → jump to first visible content widget of current page
         if isinstance(w, NavButton) and w._go_to_content:
             w._go_to_content = False
-            # Jump straight to first visible, editable content widget (past all nav buttons)
             for i in range(len(PAGE_NAMES), len(self._widgets__)):
                 c = self._widgets__[i]
                 if c.editable and not c.hidden:
                     self.editw = i
                     return
+
         super().handle_exiting_widgets(condition)
+
+        # UP from content → super may have landed on the wrong NavButton (e.g. Advanced).
+        # Redirect to the nav button that matches the current page.
+        if isinstance(self._widgets__[self.editw], NavButton):
+            self.editw = self._current_page
 
     def display(self, *args, **kwargs):
         try:
