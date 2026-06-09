@@ -520,6 +520,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.output_box.value = "\n".join(self._output_lines[-3:])
             self.output_box.update(clear=True)
             try:
+                vis_h = max(1, curses.LINES - 2)
+                # Scroll so that the bottom of the form (actions at row 33) is visible
+                self.show_aty = max(0, 34 - vis_h)
                 self._display()
             except Exception:
                 pass
@@ -648,7 +651,14 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.exec_custom_script(script)
 
         self.set_status("◆  Ready for next command.")
+        self.show_aty = 0
+        self.display()
         logging.info("--- COMPLETED ---")
+
+        # Flush buffered keypresses so a leftover Enter from "Apply changes?"
+        # doesn't auto-dismiss the next popup
+        try: curses.flushinp()
+        except Exception: pass
 
         if self.chk_shutdown.value:
             npyscreen.notify_confirm("Done. System will shut down.", title="Success")
