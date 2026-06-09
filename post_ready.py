@@ -90,6 +90,43 @@ class PostReadyForm(npyscreen.FormBaseNew):
         kwargs.setdefault('columns', cols)
         super().__init__(*args, **kwargs)
 
+    def draw_form(self):
+        try:
+            cols = self.columns
+        except Exception:
+            try:   cols = curses.COLS or 80
+            except Exception: cols = 80
+
+        H = "─"
+
+        # Row 0: ─── PostReady v3.0 ───
+        title = " PostReady v3.0 "
+        side  = max(0, (cols - len(title)) // 2)
+        row0  = H * side + title + H * max(0, cols - side - len(title))
+        try: self.curses_pad.addstr(0, 0, row0[:cols])
+        except Exception: pass
+
+        # Rows 1-6: ASCII logo
+        logo_w = max(len(l) for l in LOGO)
+        logo_x = max(0, (cols - logo_w) // 2)
+        for i, line in enumerate(LOGO):
+            try: self.curses_pad.addstr(1 + i, logo_x, line)
+            except Exception: pass
+
+        # Row 7: subtitle
+        subtitle = "Linux System Preparation Tool"
+        sub_x = max(0, (cols - len(subtitle)) // 2)
+        try: self.curses_pad.addstr(7, sub_x, subtitle)
+        except Exception: pass
+
+        # Row 8: separator
+        try: self.curses_pad.addstr(8, 1, H * (cols - 2))
+        except Exception: pass
+
+        # Row 10: separator below nav buttons
+        try: self.curses_pad.addstr(10, 1, H * (cols - 2))
+        except Exception: pass
+
     def display(self, *args, **kwargs):
         try:
             focused = self._widgets__[self.editw]
@@ -129,28 +166,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
     # ---- header ----
 
     def _draw_header(self):
-        try:
-            cols = curses.COLS or 80
-        except Exception:
-            cols = 80
-
-        title   = " PostReady v3.0 "
-        side    = (cols - len(title)) // 2
-        t_line  = "─" * side + title + "─" * max(0, cols - side - len(title))
-        self.add(npyscreen.FixedText, value=t_line, rely=0, relx=0)
-
-        logo_w = max(len(l) for l in LOGO)
-        logo_x = max(0, (cols - logo_w) // 2)
-        for i, line in enumerate(LOGO):
-            self.add(npyscreen.FixedText, value=line,
-                     rely=1 + i, relx=logo_x)
-
-        self.add(npyscreen.FixedText,
-                 value="Linux System Preparation Tool".center(cols),
-                 rely=7, relx=0)
-        self.add(npyscreen.FixedText,
-                 value="─" * (cols - 2),
-                 rely=8, relx=1)
+        pass  # drawn via draw_form()
 
     def _draw_nav(self):
         x = 2
@@ -160,13 +176,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
                      rely=9, relx=x,
                      when_pressed_function=lambda p=i: self._switch(p))
             x += len(lbl) + 2
-        try:
-            cols = curses.COLS or 80
-        except Exception:
-            cols = 80
-        self.add(npyscreen.FixedText,
-                 value="─" * (cols - 2),
-                 rely=10, relx=1)
 
     # ---- page registration helper ----
 
