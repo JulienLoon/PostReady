@@ -53,7 +53,7 @@ CS = 11
 class LogViewerForm(npyscreen.FormBaseNew):
     def create(self):
         self.add(npyscreen.FixedText,
-                 value="PostReady v3.0 — Log Viewer   Q / ESC = terug",
+                 value="PostReady v3.0 — Log Viewer   Q / ESC = back",
                  rely=0, relx=2, color="WARNING")
         self.add(npyscreen.FixedText, value="─" * 60, rely=1, relx=0, color="LABEL")
         self.log_box = self.add(
@@ -66,9 +66,9 @@ class LogViewerForm(npyscreen.FormBaseNew):
     def _read_log(self):
         try:
             lines = Path(LOG_FILE).read_text().splitlines()
-            return "\n".join(lines[-300:]) if lines else "(leeg)"
+            return "\n".join(lines[-300:]) if lines else "(empty)"
         except Exception as e:
-            return f"Kan log niet lezen: {e}"
+            return f"Cannot read log: {e}"
 
     def _back(self, _=None):
         self.parentApp.switchForm("MAIN")
@@ -375,7 +375,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             value=False, rely=CS+1, relx=4))
         self.chk_ssh_harden.when_value_edited = self._toggle_ssh
         self.field_ssh_port = self._pw(p, self.add(
-            npyscreen.TitleText, name="SSH Poort:", value="22",
+            npyscreen.TitleText, name="SSH Port:", value="22",
             rely=CS+2, relx=6, begin_entry_at=14))
         self.chk_ssh_no_pass = self._pw(p, self.add(
             npyscreen.Checkbox, name="Disable Password Auth",
@@ -413,7 +413,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def _create_settings(self):
         p = 3
-        self._pw(p, self.add(npyscreen.FixedText, value="[ INSTELLINGEN ]",
+        self._pw(p, self.add(npyscreen.FixedText, value="[ SETTINGS ]",
                               rely=CS, relx=2, color="LABEL"))
         self.field_hostname   = self._pw(p, self.add(
             npyscreen.TitleText,     name="Hostname:",    rely=CS+1, relx=4, begin_entry_at=16))
@@ -445,7 +445,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             npyscreen.TitleText, name="Custom Script:",
             rely=CS+1, relx=4, begin_entry_at=16))
         self.chk_dryrun = self._pw(p, self.add(
-            npyscreen.Checkbox, name="Dry-run (preview only, geen wijzigingen)",
+            npyscreen.Checkbox, name="Dry-run (preview only, no changes)",
             value=False, rely=CS+2, relx=4))
         self._pw(p, self.add(npyscreen.FixedText, value="[ PRESETS ]",
                               rely=CS+4, relx=2, color="LABEL"))
@@ -523,8 +523,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.parentApp.switchForm("LOG")
 
     def _quit(self):
-        if npyscreen.notify_yes_no("Weet je zeker dat je wilt afsluiten?",
-                                   title="Bevestigen", editw=1):
+        if npyscreen.notify_yes_no("Are you sure you want to quit?",
+                                   title="Confirm", editw=1):
             logging.info("User exited.")
             self.parentApp.switchForm(None)
 
@@ -587,44 +587,44 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self.parentApp._dryrun = self.chk_dryrun.value
 
         if self.chk_motd.value and self.chk_motd_uninstall.value:
-            npyscreen.notify_confirm("Kan MOTD niet tegelijk installeren en verwijderen.", title="Fout")
+            npyscreen.notify_confirm("Cannot install and uninstall MOTD at the same time.", title="Error")
             return
         if not self.chk_dhcp.value:
             if not all([self.field_ip.value, self.field_gw.value, self.field_dns.value]):
-                npyscreen.notify_confirm("Statisch IP vereist: IP, Gateway en DNS.", title="Fout")
+                npyscreen.notify_confirm("Static IP requires: IP, Gateway and DNS.", title="Error")
                 self._switch(1); return
             if not self._valid_ip((self.field_ip.value or "").strip()):
-                npyscreen.notify_confirm("Ongeldig IP-formaat.", title="Fout")
+                npyscreen.notify_confirm("Invalid IP format.", title="Error")
                 self._switch(1); return
         if self.chk_ssh_harden.value:
             try:
                 port = int((self.field_ssh_port.value or "").strip())
                 if not (1 <= port <= 65535): raise ValueError
             except ValueError:
-                npyscreen.notify_confirm("Ongeldige SSH-poort.", title="Fout")
+                npyscreen.notify_confirm("Invalid SSH port.", title="Error")
                 self._switch(2); return
 
         if self.chk_history.value:
             if not npyscreen.notify_yes_no(
-                "WAARSCHUWING: history wissen sluit alle bash sessies!\n"
-                "SSH verbinding wordt verbroken. Script blijft lopen.\nDoorgaan?",
-                title="Waarschuwing", editw=1): return
+                "WARNING: clearing history will close all bash sessions!\n"
+                "SSH connection will be dropped. Script keeps running.\nContinue?",
+                title="Warning", editw=1): return
 
         dry = " [DRY-RUN]" if self.parentApp._dryrun else ""
-        if not npyscreen.notify_yes_no(f"Wijzigingen toepassen?{dry}",
-                                       title="Bevestigen", editw=1):
+        if not npyscreen.notify_yes_no(f"Apply changes?{dry}",
+                                       title="Confirm", editw=1):
             return
 
         self._show_output()
         logging.info(f"--- START (dryrun={self.parentApp._dryrun}) ---")
         steps = [
-            ("Cleanup…",     self.exec_cleanup),
-            ("Netwerk…",     self.exec_network),
-            ("Beveiliging…", self.exec_security),
-            ("Systeem…",     self.exec_system),
+            ("Cleanup…",  self.exec_cleanup),
+            ("Network…",  self.exec_network),
+            ("Security…", self.exec_security),
+            ("System…",   self.exec_system),
         ]
         for i, (lbl, fn) in enumerate(steps, 1):
-            self.set_status(f"▶  Stap {i}/{len(steps)}: {lbl}")
+            self.set_status(f"▶  Step {i}/{len(steps)}: {lbl}")
             fn()
 
         if self.chk_motd.value or self.chk_motd_uninstall.value:
@@ -633,7 +633,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 if self.chk_motd_uninstall.value: self.exec_motd_uninstall()
                 elif self.chk_motd.value:         self.exec_motd()
             else:
-                npyscreen.notify_confirm("Netwerk niet bereikbaar. MOTD overgeslagen.", title="Waarschuwing")
+                npyscreen.notify_confirm("Network unreachable. MOTD skipped.", title="Warning")
 
         script = (self.field_custom_script.value or "").strip()
         if script:
@@ -644,13 +644,13 @@ class PostReadyForm(npyscreen.FormBaseNew):
         logging.info("--- COMPLETED ---")
 
         if self.chk_shutdown.value:
-            npyscreen.notify_confirm("Klaar. Systeem wordt afgesloten.", title="Succes")
+            npyscreen.notify_confirm("Done. System will shut down.", title="Success")
             self.run_cmd("shutdown -h now")
         elif self.chk_reboot.value:
-            npyscreen.notify_confirm("Klaar. Systeem wordt herstart.", title="Succes")
+            npyscreen.notify_confirm("Done. System will reboot.", title="Success")
             self.run_cmd("shutdown -r now")
         else:
-            if npyscreen.notify_yes_no("Configuratie toegepast. PostReady afsluiten?", title="Klaar"):
+            if npyscreen.notify_yes_no("Configuration applied. Quit PostReady?", title="Done"):
                 self.parentApp.switchForm(None)
             return
 
@@ -985,8 +985,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def exec_custom_script(self, script):
         if not os.path.exists(script):
-            logging.error(f"Script niet gevonden: {script}")
-            npyscreen.notify_confirm(f"Script niet gevonden:\n{script}", title="Fout")
+            logging.error(f"Script not found: {script}")
+            npyscreen.notify_confirm(f"Script not found:\n{script}", title="Error")
             return
         try:
             os.chmod(script, 0o755)
@@ -999,7 +999,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
     # ============================================================
 
     def _save_preset(self):
-        name = npyscreen.notify_input("Naam voor deze preset:", title="Preset opslaan")
+        name = npyscreen.notify_input("Name for this preset:", title="Save Preset")
         if not name or not name.strip(): return
         name = name.strip()
         try:
@@ -1007,28 +1007,28 @@ class PostReadyForm(npyscreen.FormBaseNew):
             data = self._gather_preset()
             data["name"] = name
             (Path(PRESET_DIR) / f"{name}.json").write_text(json.dumps(data, indent=2))
-            npyscreen.notify_confirm(f"Preset '{name}' opgeslagen.", title="Opgeslagen")
+            npyscreen.notify_confirm(f"Preset '{name}' saved.", title="Saved")
             logging.info(f"Preset saved: {name}")
         except Exception as e:
-            npyscreen.notify_confirm(f"Fout: {e}", title="Error")
+            npyscreen.notify_confirm(f"Error: {e}", title="Error")
 
     def _load_preset(self):
         presets = sorted(Path(PRESET_DIR).glob("*.json")) if Path(PRESET_DIR).exists() else []
         if not presets:
-            npyscreen.notify_confirm("Geen presets gevonden in " + PRESET_DIR, title="Info")
+            npyscreen.notify_confirm("No presets found in " + PRESET_DIR, title="Info")
             return
         listing = "\n".join(f"{i+1}. {p.stem}" for i, p in enumerate(presets))
-        choice = npyscreen.notify_input(f"Kies nummer:\n{listing}", title="Preset laden")
+        choice = npyscreen.notify_input(f"Choose a number:\n{listing}", title="Load Preset")
         if not choice or not choice.strip(): return
         try:
             idx = int(choice.strip()) - 1
             if not (0 <= idx < len(presets)):
-                npyscreen.notify_confirm("Ongeldig nummer.", title="Fout"); return
+                npyscreen.notify_confirm("Invalid number.", title="Error"); return
             data = json.loads(presets[idx].read_text())
             self._apply_preset(data)
-            npyscreen.notify_confirm(f"Preset '{presets[idx].stem}' geladen.", title="Geladen")
+            npyscreen.notify_confirm(f"Preset '{presets[idx].stem}' loaded.", title="Loaded")
         except Exception as e:
-            npyscreen.notify_confirm(f"Fout: {e}", title="Error")
+            npyscreen.notify_confirm(f"Error: {e}", title="Error")
 
     def _gather_preset(self):
         return {
