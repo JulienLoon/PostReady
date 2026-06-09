@@ -528,6 +528,18 @@ class PostReadyForm(npyscreen.FormBaseNew):
         for i, btn in enumerate(getattr(self, '_nav_buttons', [])):
             name = PAGE_NAMES[i]
             btn.name = f"[▸{name} ]" if i == page else f"[ {name} ]"
+        # Explicitly wipe the content area to prevent bleed-through from other tabs
+        try:
+            cols = curses.COLS or 80
+        except Exception:
+            cols = 80
+        blank = " " * max(0, cols - 2)
+        content_end = getattr(self, '_row_actions_sep', 28)
+        for row in range(CS, content_end):
+            try:
+                self.curses_pad.addstr(row, 1, blank)
+            except Exception:
+                pass
         self._draw_section_sep(page)
         if page == 1:
             self._toggle_dhcp()
