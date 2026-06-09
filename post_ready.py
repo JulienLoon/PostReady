@@ -175,12 +175,20 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Row 28: labeled action bar separator
+        # Row 28: ├──── Output ────┤
+        out_label = "  Output  "
+        out_side  = max(0, (inner - len(out_label)) // 2)
+        out_fill  = max(0, inner - out_side - len(out_label))
+        out_sep   = LT + H * out_side + out_label + H * out_fill + RT
+        try: self.curses_pad.addstr(28, 0, out_sep[:cols])
+        except Exception: pass
+
+        # Row 32: ├──── Actions ────┤
         act_label = "  Actions  "
         act_side  = max(0, (inner - len(act_label)) // 2)
         act_fill  = max(0, inner - act_side - len(act_label))
         act_sep   = LT + H * act_side + act_label + H * act_fill + RT
-        try: self.curses_pad.addstr(28, 0, act_sep[:cols])
+        try: self.curses_pad.addstr(32, 0, act_sep[:cols])
         except Exception: pass
 
     def handle_exiting_widgets(self, condition):
@@ -227,26 +235,26 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_settings()
         self._create_advanced()
 
-        # Output panel — shown over the content area during command execution
+        # Persistent output panel — always visible below content
         self.output_box = self.add(
             npyscreen.MultiLineEdit,
             value="",
-            rely=CS, relx=2,
-            max_height=16,
+            rely=29, relx=2,
+            max_height=3,
             editable=False,
-            hidden=True,
+            hidden=False,
         )
         self._output_lines = []
 
         self.status_text = self.add(
             npyscreen.FixedText, value="◆  Ready for next command.",
-            rely=29, relx=3, color="GOOD")
+            rely=33, relx=3, color="GOOD")
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
-                 rely=30, relx=4,  when_pressed_function=self._do_apply)
+                 rely=33, relx=35, when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
-                 rely=30, relx=32, when_pressed_function=self._view_log)
+                 rely=33, relx=48, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",
-                 rely=30, relx=62, when_pressed_function=self._quit)
+                 rely=33, relx=64, when_pressed_function=self._quit)
 
         self._switch(0)
 
@@ -342,7 +350,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try:
             out = subprocess.check_output(
                 "ip -o link show | awk -F': ' '{print $2}' | grep -v '^lo$'",
-                shell=True).decode().strip().split('\n')
+                shell=True, stderr=subprocess.DEVNULL).decode().strip().split('\n')
             return [i.strip() for i in out if i.strip()] or ["eth0"]
         except Exception:
             return ["eth0"]
@@ -498,19 +506,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
         except Exception:
             pass
 
-    def _show_output(self):
+    def _clear_output(self):
         self._output_lines = []
-        for ws in self._page_widgets:
-            for w in ws:
-                w.hidden = True
         self.output_box.value = ""
-        self.output_box.hidden = False
-        self.display()
+        self.output_box.update(clear=True)
 
     def _append_output(self, line):
         try:
             self._output_lines.append(str(line))
-            self.output_box.value = "\n".join(self._output_lines[-14:])
+            self.output_box.value = "\n".join(self._output_lines[-3:])
             self.output_box.update(clear=True)
             try:
                 self._display()
@@ -615,7 +619,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                                        title="Confirm", editw=1):
             return
 
-        self._show_output()
+        self._clear_output()
         logging.info(f"--- START (dryrun={self.parentApp._dryrun}) ---")
         steps = [
             ("Cleanup…",  self.exec_cleanup),
@@ -650,7 +654,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             npyscreen.notify_confirm("Done. System will reboot.", title="Success")
             self.run_cmd("shutdown -r now")
         else:
-            if npyscreen.notify_yes_no("Configuration applied. Quit PostReady?", title="Done"):
+            if npyscreen.notify_yes_no("Configuration applied. Quit PostReady?", title="Done", editw=1):
                 self.parentApp.switchForm(None)
             return
 
@@ -688,7 +692,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 try:
                     pkgs = subprocess.check_output(
                         "snap list --all | awk 'NR>1 {print $1}' | sort -u",
-                        shell=True, text=True).strip().split('\n')
+                        shell=True, text=True, stderr=subprocess.DEVNULL).strip().split('\n')
                     for pkg in pkgs:
                         if pkg.strip():
                             self.run_cmd(f"snap remove --purge {pkg.strip()} 2>/dev/null || true")
@@ -815,7 +819,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 logging.error(f"SSH harden: {e}")
 
         if self.chk_ufw.value:
-            self.run_cmd("apt-get install -y ufw 2>/dev/null || true")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get install -y ufw 2>/dev/null || true")
             self.run_cmd("ufw --force reset")
             self.run_cmd("ufw default deny incoming")
             self.run_cmd("ufw default allow outgoing")
@@ -824,12 +828,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.run_cmd("ufw --force enable")
 
         if self.chk_fail2ban.value:
-            self.run_cmd("apt-get install -y fail2ban")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get install -y fail2ban")
             self.run_cmd("systemctl enable --now fail2ban")
 
         if self.chk_unattended.value:
-            self.run_cmd("apt-get install -y unattended-upgrades")
-            self.run_cmd("dpkg-reconfigure -plow unattended-upgrades")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades")
+            self.run_cmd("DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -plow unattended-upgrades")
 
     # ============================================================
     # EXEC — system
@@ -866,7 +870,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         if user:
             try:
                 subprocess.run(f"id -u {user}", shell=True, check=True,
-                               stdout=subprocess.DEVNULL)
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except subprocess.CalledProcessError:
                 self.run_cmd(f"useradd -m -s /bin/bash {user}")
                 self.run_cmd(f"usermod -aG sudo {user}")
@@ -887,7 +891,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 try:
                     home = subprocess.check_output(
                         f"getent passwd {user} | cut -d: -f6",
-                        shell=True, text=True).strip()
+                        shell=True, text=True, stderr=subprocess.DEVNULL).strip()
                     ssh_dir = Path(home) / ".ssh"
                     ssh_dir.mkdir(mode=0o700, exist_ok=True)
                     auth = ssh_dir / "authorized_keys"
@@ -928,7 +932,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def exec_motd(self):
         if not shutil.which("git"):
-            self.run_cmd("apt-get update && apt-get install -y git ca-certificates")
+            self.run_cmd("apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates")
         Path(MOTD_TARGET).parent.mkdir(parents=True, exist_ok=True)
         try: os.chmod(Path(MOTD_TARGET).parent, 0o755)
         except Exception: pass
@@ -1119,9 +1123,31 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
 class PostReadyApp(npyscreen.NPSAppManaged):
     def onStart(self):
-        self._dryrun = False
+        self._dryrun   = False
+        self._saved_out = None
+        self._saved_err = None
+        try:
+            nfd = os.open('/dev/null', os.O_WRONLY)
+            self._saved_out = os.dup(1)
+            self._saved_err = os.dup(2)
+            os.dup2(nfd, 1)
+            os.dup2(nfd, 2)
+            os.close(nfd)
+        except Exception:
+            pass
         self.addForm("MAIN", PostReadyForm)
         self.addForm("LOG",  LogViewerForm)
+
+    def restore_fds(self):
+        try:
+            if self._saved_out is not None:
+                os.dup2(self._saved_out, 1)
+                os.dup2(self._saved_err, 2)
+                os.close(self._saved_out)
+                os.close(self._saved_err)
+                self._saved_out = None
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
@@ -1130,19 +1156,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logging.info("=== PostReady Application Started ===")
+    app = PostReadyApp()
     try:
-        PostReadyApp().run()
+        app.run()
+    except KeyboardInterrupt:
+        logging.warning("User interrupted (SIGINT)")
+    except Exception as e:
+        logging.critical(f"FATAL EXCEPTION: {e}", exc_info=True)
+    finally:
+        app.restore_fds()
+
+    if not getattr(app, '_fatal', False):
         logging.info("=== PostReady Application Ended Normally ===")
         width = 50
         print(f"\n{' PostReady ':=^{width}}")
         print(f"|| {'Goodbye! See you next time.':<{width-6}} ||")
         print("=" * width + "\n")
-    except KeyboardInterrupt:
-        logging.warning("User interrupted (SIGINT)")
-        print("\n[WARNING] Process terminated by user.")
-        try: sys.exit(0)
-        except Exception: os._exit(0)
-    except Exception as e:
-        logging.critical(f"FATAL EXCEPTION: {e}", exc_info=True)
-        print(f"\n[ERROR] Fatal crash. See {LOG_FILE} for details.")
-        sys.exit(1)
