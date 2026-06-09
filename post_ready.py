@@ -602,7 +602,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
             npyscreen.notify_confirm("Klaar. Systeem wordt herstart.", title="Succes")
             self.run_cmd("shutdown -r now")
         else:
-            npyscreen.notify_confirm("Configuratie toegepast. Herstart aanbevolen.", title="Succes")
+            if npyscreen.notify_yes_no("Configuratie toegepast. PostReady afsluiten?", title="Klaar"):
+                self.parentApp.switchForm(None)
+            return
 
         self.parentApp.switchForm(None)
 
