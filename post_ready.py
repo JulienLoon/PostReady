@@ -75,6 +75,29 @@ class LogViewerForm(npyscreen.FormBaseNew):
 
 
 # ============================================================
+# NAV BUTTON — left/right switches pages, down jumps to content
+# ============================================================
+
+class NavButton(npyscreen.ButtonPress):
+    nav_index = 0
+
+    def h_exit_left(self, _input):
+        if self.nav_index > 0:
+            self.parent._switch(self.nav_index - 1)
+        self.h_exit_up(_input)                              # go to previous nav button
+
+    def h_exit_right(self, _input):
+        if self.nav_index < len(PAGE_NAMES) - 1:
+            self.parent._switch(self.nav_index + 1)
+        npyscreen.ButtonPress.h_exit_down(self, _input)    # go to next nav button
+
+    def h_exit_down(self, _input):
+        # Jump editw to last nav button so find_next_editable skips to page content
+        self.parent.editw = len(PAGE_NAMES) - 1
+        npyscreen.ButtonPress.h_exit_down(self, _input)
+
+
+# ============================================================
 # MAIN FORM — single form, page switching
 # ============================================================
 
@@ -172,9 +195,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
         x = 2
         for i, name in enumerate(PAGE_NAMES):
             lbl = f"[ {name} ]"
-            self.add(npyscreen.ButtonPress, name=lbl,
-                     rely=9, relx=x,
-                     when_pressed_function=lambda p=i: self._switch(p))
+            btn = self.add(NavButton, name=lbl,
+                           rely=9, relx=x,
+                           when_pressed_function=lambda p=i: self._switch(p))
+            btn.nav_index = i
             x += len(lbl) + 2
 
     # ---- page registration helper ----
