@@ -175,25 +175,17 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Row 28: ├──── Output ────┤
-        out_label = "  Output  "
-        out_side  = max(0, (inner - len(out_label)) // 2)
-        out_fill  = max(0, inner - out_side - len(out_label))
-        out_sep   = LT + H * out_side + out_label + H * out_fill + RT
-        try: self.curses_pad.addstr(28, 0, out_sep[:cols])
-        except Exception: pass
-
-        # Row 32: ├──── Actions ────┤
+        # Row 28: ├──── Actions ────┤
         act_label = "  Actions  "
         act_side  = max(0, (inner - len(act_label)) // 2)
         act_fill  = max(0, inner - act_side - len(act_label))
         act_sep   = LT + H * act_side + act_label + H * act_fill + RT
-        try: self.curses_pad.addstr(32, 0, act_sep[:cols])
+        try: self.curses_pad.addstr(28, 0, act_sep[:cols])
         except Exception: pass
 
-        # Row 33: status text (drawn directly, not a widget)
+        # Row 29: status text (drawn directly, not a widget)
         status = getattr(self, '_status_msg', '◆  Ready for next command.')
-        try: self.curses_pad.addstr(33, 3, status[:cols - 4])
+        try: self.curses_pad.addstr(29, 3, status[:cols - 4])
         except Exception: pass
 
     def handle_exiting_widgets(self, condition):
@@ -240,24 +232,24 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_settings()
         self._create_advanced()
 
-        # Persistent output panel — always visible below content
+        # Output overlay — large, hidden until execution starts
         self.output_box = self.add(
             npyscreen.MultiLineEdit,
             value="",
-            rely=29, relx=2,
-            max_height=3,
+            rely=CS, relx=2,
+            max_height=16,
             editable=False,
-            hidden=False,
+            hidden=True,
         )
         self._output_lines = []
 
         self._status_msg = "◆  Ready for next command."
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
-                 rely=33, relx=35, when_pressed_function=self._do_apply)
+                 rely=30, relx=4,  when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
-                 rely=33, relx=48, when_pressed_function=self._view_log)
+                 rely=30, relx=32, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",
-                 rely=33, relx=64, when_pressed_function=self._quit)
+                 rely=30, relx=62, when_pressed_function=self._quit)
 
         self._switch(0)
 
@@ -511,19 +503,28 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     def _clear_output(self):
         self._output_lines = []
+        for ws in self._page_widgets:
+            for w in ws:
+                w.hidden = True
         self.output_box.value = ""
-        self.output_box.update(clear=True)
+        self.output_box.hidden = False
+        self.show_aty = 0
+        self.display()
+
+    def _restore_output(self):
+        self.output_box.hidden = True
+        self._switch(self._current_page)
+        self.show_aty = 0
 
     def _append_output(self, line):
         try:
             self._output_lines.append(str(line))
-            self.output_box.value = "\n".join(self._output_lines[-3:])
+            self.output_box.value = "\n".join(self._output_lines[-16:])
             self.output_box.update(clear=True)
             try:
-                vis_h = max(1, curses.LINES - 2)
-                # Scroll so that the bottom of the form (actions at row 33) is visible
-                self.show_aty = max(0, 34 - vis_h)
+                self.show_aty = 0
                 self._display()
+                curses.doupdate()
             except Exception:
                 pass
         except Exception:
@@ -547,8 +548,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
         short = cmd[:80] + ("…" if len(cmd) > 80 else "")
         self._append_output(f"$ {short}")
         try:
+            # stdbuf forces line-buffered stdout/stderr so we get real-time output
+            if shell and shutil.which("stdbuf"):
+                actual_cmd = ["stdbuf", "-oL", "-eL", "sh", "-c", cmd]
+                use_shell = False
+            else:
+                actual_cmd = cmd
+                use_shell = shell
             proc = subprocess.Popen(
-                cmd, shell=shell,
+                actual_cmd, shell=use_shell,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True, bufsize=1,
@@ -651,8 +659,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.exec_custom_script(script)
 
         self.set_status("◆  Ready for next command.")
-        self.show_aty = 0
-        self.display()
+        self._restore_output()
         logging.info("--- COMPLETED ---")
 
         # Flush buffered keypresses so a leftover Enter from "Apply changes?"
