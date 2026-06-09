@@ -230,9 +230,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
     def _calc_layout(self):
         """Calculate row positions dynamically based on terminal height."""
         try:
-            avail = max(20, self.lines)
+            avail = curses.LINES
+            if not avail or avail < 20:
+                avail = 35
         except Exception:
-            avail = max(20, curses.LINES or 35)
+            avail = 35
         # Fixed overhead: 11 header + 3 actions + 1 output sep + 1 bottom = 16
         remaining    = max(4, avail - 16)
         content_rows = min(17, max(2, remaining - 2))
@@ -260,15 +262,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
         self._output_lines = []
         self._status_msg = "^T:tab   ^A:apply   ^L:log   ^Q:quit"
-        cols = self.columns
-        relx_log  = max(20, (cols - 7) // 2)
-        relx_quit = max(relx_log + 12, cols - 11)
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
-                 rely=self._row_buttons, relx=4,        when_pressed_function=self._do_apply)
+                 rely=self._row_buttons, relx=4,  when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ LOG ]",
-                 rely=self._row_buttons, relx=relx_log, when_pressed_function=self._view_log)
+                 rely=self._row_buttons, relx=22, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",
-                 rely=self._row_buttons, relx=relx_quit, when_pressed_function=self._quit)
+                 rely=self._row_buttons, relx=38, when_pressed_function=self._quit)
 
         # Ctrl+T=20  Ctrl+A=1  Ctrl+L=12  Ctrl+Q=17
         self.add_handlers({
