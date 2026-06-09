@@ -191,6 +191,11 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(32, 0, act_sep[:cols])
         except Exception: pass
 
+        # Row 33: status text (drawn directly, not a widget)
+        status = getattr(self, '_status_msg', '◆  Ready for next command.')
+        try: self.curses_pad.addstr(33, 3, status[:cols - 4])
+        except Exception: pass
+
     def handle_exiting_widgets(self, condition):
         w = self._widgets__[self.editw]
 
@@ -246,9 +251,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         )
         self._output_lines = []
 
-        self.status_text = self.add(
-            npyscreen.FixedText, value="◆  Ready for next command.",
-            rely=33, relx=3, color="GOOD")
+        self._status_msg = "◆  Ready for next command."
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
                  rely=33, relx=35, when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
@@ -500,9 +503,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
     # ---- shared helpers ----
 
     def set_status(self, text):
+        self._status_msg = text
         try:
-            self.status_text.value = text
-            self.status_text.display()
+            self._display()
         except Exception:
             pass
 
