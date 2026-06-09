@@ -56,7 +56,7 @@ class LogViewerForm(npyscreen.FormBaseNew):
         self.parentApp.switchFormPrevious()
 
 
-class PostReadyForm(npyscreen.FormScrolled):
+class PostReadyForm(npyscreen.FormBaseNew):
     def create(self):
         title = "PostReady v3.0 - System Preparation Tool"
         self.add(npyscreen.FixedText, value=title, editable=False, rely=0,
