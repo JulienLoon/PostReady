@@ -180,9 +180,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Actions separator (dynamic row)
+        # Actions separator with shortcut hints (dynamic row)
         r_act = getattr(self, '_row_actions_sep', 28)
-        act_label = "  Actions  "
+        act_label = "  ^A · Apply   ^L · Log   ^Q · Quit   ^T · Tab  "
         act_side  = max(0, (inner - len(act_label)) // 2)
         act_fill  = max(0, inner - act_side - len(act_label))
         act_sep   = LT + H * act_side + act_label + H * act_fill + RT
@@ -261,7 +261,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._create_advanced()
 
         self._output_lines = []
-        self._status_msg = "^T:tab   ^A:apply   ^L:log   ^Q:quit"
+        self._status_msg = "◆  Ready for next command."
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
                  rely=self._row_buttons, relx=4,  when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ LOG ]",
@@ -712,7 +712,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.set_status("▶  Custom script…")
             self.exec_custom_script(script)
 
-        self.set_status("^T:tab   ^A:apply   ^L:log   ^Q:quit")
+        self.set_status("◆  Ready for next command.")
         self._restore_output()
         logging.info("--- COMPLETED ---")
 
