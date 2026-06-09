@@ -120,14 +120,34 @@ class PostReadyForm(npyscreen.FormBaseNew):
         except Exception:
             try:   cols = curses.COLS or 80
             except Exception: cols = 80
+        try:
+            rows = self.lines
+        except Exception:
+            rows = 35
 
-        H = "─"
+        H  = "─";  V  = "│"
+        TL = "┌";  TR = "┐"
+        BL = "└";  BR = "┘"
+        LT = "├";  RT = "┤"
 
-        # Row 0: ─── PostReady v3.0 ───
-        title = " PostReady v3.0 "
-        side  = max(0, (cols - len(title)) // 2)
-        row0  = H * side + title + H * max(0, cols - side - len(title))
-        try: self.curses_pad.addstr(0, 0, row0[:cols])
+        # Row 0: top border with centred title
+        title  = " PostReady v3.0 "
+        inner  = max(0, cols - 2)
+        side   = max(0, (inner - len(title)) // 2)
+        fill_r = max(0, inner - side - len(title))
+        top    = TL + H * side + title + H * fill_r + TR
+        try: self.curses_pad.addstr(0, 0, top[:cols])
+        except Exception: pass
+
+        # Left / right borders
+        for r in range(1, rows - 1):
+            try: self.curses_pad.addstr(r, 0, V)
+            except Exception: pass
+            try: self.curses_pad.addstr(r, cols - 1, V)
+            except Exception: pass
+
+        # Bottom border
+        try: self.curses_pad.addstr(rows - 1, 0, (BL + H * inner + BR)[:cols])
         except Exception: pass
 
         # Rows 1-6: ASCII logo
@@ -143,12 +163,12 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(7, sub_x, subtitle)
         except Exception: pass
 
-        # Row 8: separator
-        try: self.curses_pad.addstr(8, 1, H * (cols - 2))
+        # Row 8: separator ├───┤
+        try: self.curses_pad.addstr(8, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Row 10: separator below nav buttons
-        try: self.curses_pad.addstr(10, 1, H * (cols - 2))
+        # Row 10: separator below nav buttons ├───┤
+        try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
     def handle_exiting_widgets(self, condition):
