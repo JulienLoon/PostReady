@@ -163,11 +163,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(7, sub_x, subtitle)
         except Exception: pass
 
-        # Row 8: separator ├───┤
-        try: self.curses_pad.addstr(8, 0, (LT + H * inner + RT)[:cols])
+        # Row 8: ├──── Navigation ────┤
+        nav_label = "  Navigation  "
+        nav_side  = max(0, (inner - len(nav_label)) // 2)
+        nav_fill  = max(0, inner - nav_side - len(nav_label))
+        nav_sep   = LT + H * nav_side + nav_label + H * nav_fill + RT
+        try: self.curses_pad.addstr(8, 0, nav_sep[:cols])
         except Exception: pass
 
-        # Row 10: separator below nav buttons ├───┤
+        # Row 10: active page name (drawn by _draw_section_sep, placeholder here)
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
@@ -454,6 +458,20 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
     # ---- page switching ----
 
+    def _draw_section_sep(self, page):
+        try:
+            cols = self.columns
+        except Exception:
+            cols = 80
+        H = "─"; LT = "├"; RT = "┤"
+        inner = max(0, cols - 2)
+        label = f"  {PAGE_NAMES[page]}  "
+        side  = max(0, (inner - len(label)) // 2)
+        fill  = max(0, inner - side - len(label))
+        sep   = LT + H * side + label + H * fill + RT
+        try: self.curses_pad.addstr(10, 0, sep[:cols])
+        except Exception: pass
+
     def _switch(self, page):
         for p_idx, widgets in enumerate(self._page_widgets):
             visible = (p_idx == page)
@@ -462,6 +480,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 if not isinstance(w, npyscreen.FixedText):
                     w.editable = visible
         self._current_page = page
+        self._draw_section_sep(page)
         if page == 1:
             self._toggle_dhcp()
         elif page == 2:
