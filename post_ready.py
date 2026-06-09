@@ -134,22 +134,23 @@ class PostReadyForm(npyscreen.FormBaseNew):
         except Exception:
             cols = 80
 
-        self.add(npyscreen.FixedText,
-                 value="PostReady v3.0".center(cols),
-                 rely=0, relx=0, color="STANDOUT")
+        title   = " PostReady v3.0 "
+        side    = (cols - len(title)) // 2
+        t_line  = "─" * side + title + "─" * max(0, cols - side - len(title))
+        self.add(npyscreen.FixedText, value=t_line, rely=0, relx=0)
 
         logo_w = max(len(l) for l in LOGO)
         logo_x = max(0, (cols - logo_w) // 2)
         for i, line in enumerate(LOGO):
             self.add(npyscreen.FixedText, value=line,
-                     rely=1 + i, relx=logo_x, color="LABEL")
+                     rely=1 + i, relx=logo_x)
 
         self.add(npyscreen.FixedText,
                  value="Linux System Preparation Tool".center(cols),
-                 rely=7, relx=0, color="LABEL")
+                 rely=7, relx=0)
         self.add(npyscreen.FixedText,
                  value="─" * (cols - 2),
-                 rely=8, relx=1, color="LABEL")
+                 rely=8, relx=1)
 
     def _draw_nav(self):
         x = 2
@@ -165,7 +166,7 @@ class PostReadyForm(npyscreen.FormBaseNew):
             cols = 80
         self.add(npyscreen.FixedText,
                  value="─" * (cols - 2),
-                 rely=10, relx=1, color="LABEL")
+                 rely=10, relx=1)
 
     # ---- page registration helper ----
 
