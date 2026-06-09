@@ -171,6 +171,10 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
+        # Row 28: separator above action bar ├───┤
+        try: self.curses_pad.addstr(28, 0, (LT + H * inner + RT)[:cols])
+        except Exception: pass
+
     def handle_exiting_widgets(self, condition):
         w = self._widgets__[self.editw]
 
@@ -227,13 +231,13 @@ class PostReadyForm(npyscreen.FormBaseNew):
         self._output_lines = []
 
         self.status_text = self.add(
-            npyscreen.FixedText, value="Klaar.", rely=28, relx=2, color="GOOD")
+            npyscreen.FixedText, value="Ready for next command.", rely=30, relx=42, color="GOOD")
         self.add(npyscreen.ButtonPress, name="[ APPLY ]",
-                 rely=29, relx=2,  when_pressed_function=self._do_apply)
+                 rely=30, relx=2,  when_pressed_function=self._do_apply)
         self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
-                 rely=29, relx=14, when_pressed_function=self._view_log)
+                 rely=30, relx=14, when_pressed_function=self._view_log)
         self.add(npyscreen.ButtonPress, name="[ QUIT ]",
-                 rely=29, relx=28, when_pressed_function=self._quit)
+                 rely=30, relx=28, when_pressed_function=self._quit)
 
         self._switch(0)
 
@@ -612,7 +616,6 @@ class PostReadyForm(npyscreen.FormBaseNew):
             self.set_status("Custom script…")
             self.exec_custom_script(script)
 
-        self.set_status("Klaar!")
         logging.info("--- COMPLETED ---")
 
         if self.chk_shutdown.value:
