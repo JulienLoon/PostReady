@@ -180,9 +180,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(10, 0, (LT + H * inner + RT)[:cols])
         except Exception: pass
 
-        # Actions separator with shortcut hints (dynamic row)
+        # Actions separator (dynamic row)
         r_act = getattr(self, '_row_actions_sep', 28)
-        act_label = "  ^A · Apply   ^L · Log   ^Q · Quit   ^T · Tab  "
+        act_label = "  Actions  "
         act_side  = max(0, (inner - len(act_label)) // 2)
         act_fill  = max(0, inner - act_side - len(act_label))
         act_sep   = LT + H * act_side + act_label + H * act_fill + RT
@@ -195,8 +195,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(r_sts, 3, status[:cols - 4])
         except Exception: pass
 
+        # Shortcut hints (dynamic row, below buttons)
+        r_hints = getattr(self, '_row_hints', 31)
+        hints = "^A:apply   ^L:log   ^Q:quit   ^T:tab"
+        hints_x = max(2, (cols - len(hints)) // 2)
+        try: self.curses_pad.addstr(r_hints, hints_x, hints[:cols - 2])
+        except Exception: pass
+
         # Output separator (dynamic row)
-        r_out = getattr(self, '_row_output_sep', 31)
+        r_out = getattr(self, '_row_output_sep', 32)
         out_label = "  Output  "
         out_side  = max(0, (inner - len(out_label)) // 2)
         out_fill  = max(0, inner - out_side - len(out_label))
@@ -235,14 +242,15 @@ class PostReadyForm(npyscreen.FormBaseNew):
                 avail = 35
         except Exception:
             avail = 35
-        # Fixed overhead: 11 header + 3 actions + 1 output sep + 1 bottom = 16
-        remaining    = max(4, avail - 16)
+        # Fixed overhead: 11 header + 4 actions + 1 output sep + 1 bottom = 17
+        remaining    = max(4, avail - 17)
         content_rows = min(17, max(2, remaining - 2))
         output_rows  = max(2, remaining - content_rows)
         self._row_actions_sep  = CS + content_rows
         self._row_status       = self._row_actions_sep + 1
         self._row_buttons      = self._row_status + 1
-        self._row_output_sep   = self._row_buttons + 1
+        self._row_hints        = self._row_buttons + 1
+        self._row_output_sep   = self._row_hints + 1
         self._row_output_start = self._row_output_sep + 1
         self._row_bottom       = avail - 1
         self._output_max_lines = output_rows
