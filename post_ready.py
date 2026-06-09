@@ -1126,31 +1126,9 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
 class PostReadyApp(npyscreen.NPSAppManaged):
     def onStart(self):
-        self._dryrun   = False
-        self._saved_out = None
-        self._saved_err = None
-        try:
-            nfd = os.open('/dev/null', os.O_WRONLY)
-            self._saved_out = os.dup(1)
-            self._saved_err = os.dup(2)
-            os.dup2(nfd, 1)
-            os.dup2(nfd, 2)
-            os.close(nfd)
-        except Exception:
-            pass
+        self._dryrun = False
         self.addForm("MAIN", PostReadyForm)
         self.addForm("LOG",  LogViewerForm)
-
-    def restore_fds(self):
-        try:
-            if self._saved_out is not None:
-                os.dup2(self._saved_out, 1)
-                os.dup2(self._saved_err, 2)
-                os.close(self._saved_out)
-                os.close(self._saved_err)
-                self._saved_out = None
-        except Exception:
-            pass
 
 
 if __name__ == "__main__":
@@ -1159,19 +1137,19 @@ if __name__ == "__main__":
         sys.exit(1)
 
     logging.info("=== PostReady Application Started ===")
-    app = PostReadyApp()
     try:
-        app.run()
-    except KeyboardInterrupt:
-        logging.warning("User interrupted (SIGINT)")
-    except Exception as e:
-        logging.critical(f"FATAL EXCEPTION: {e}", exc_info=True)
-    finally:
-        app.restore_fds()
-
-    if not getattr(app, '_fatal', False):
+        PostReadyApp().run()
         logging.info("=== PostReady Application Ended Normally ===")
         width = 50
         print(f"\n{' PostReady ':=^{width}}")
         print(f"|| {'Goodbye! See you next time.':<{width-6}} ||")
         print("=" * width + "\n")
+    except KeyboardInterrupt:
+        logging.warning("User interrupted (SIGINT)")
+        print("\n[WARNING] Process terminated by user.")
+        try: sys.exit(0)
+        except Exception: os._exit(0)
+    except Exception as e:
+        logging.critical(f"FATAL EXCEPTION: {e}", exc_info=True)
+        print(f"\n[ERROR] Fatal crash. See {LOG_FILE} for details.")
+        sys.exit(1)
