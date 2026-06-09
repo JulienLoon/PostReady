@@ -168,8 +168,8 @@ class PostReadyForm(npyscreen.FormBaseNew):
         try: self.curses_pad.addstr(7, sub_x, subtitle)
         except Exception: pass
 
-        # Row 8: ├──── Navigation ────┤
-        nav_label = "  Navigation  "
+        # Row 8: ├──── Navigation [^T] ────┤
+        nav_label = "  Navigation  [^T]  "
         nav_side  = max(0, (inner - len(nav_label)) // 2)
         nav_fill  = max(0, inner - nav_side - len(nav_label))
         nav_sep   = LT + H * nav_side + nav_label + H * nav_fill + RT
@@ -260,14 +260,27 @@ class PostReadyForm(npyscreen.FormBaseNew):
 
         self._output_lines = []
         self._status_msg = "◆  Ready for next command."
-        self.add(npyscreen.ButtonPress, name="[ APPLY ]",
+        self.add(npyscreen.ButtonPress, name="[ ^A  APPLY ]",
                  rely=self._row_buttons, relx=4,  when_pressed_function=self._do_apply)
-        self.add(npyscreen.ButtonPress, name="[ VIEW LOG ]",
+        self.add(npyscreen.ButtonPress, name="[ ^L  LOG ]",
                  rely=self._row_buttons, relx=32, when_pressed_function=self._view_log)
-        self.add(npyscreen.ButtonPress, name="[ QUIT ]",
+        self.add(npyscreen.ButtonPress, name="[ ^Q  QUIT ]",
                  rely=self._row_buttons, relx=62, when_pressed_function=self._quit)
 
+        # Ctrl+T=20  Ctrl+A=1  Ctrl+L=12  Ctrl+Q=17
+        self.add_handlers({
+            20: lambda _: self._next_tab(),   # ^T
+             1: lambda _: self._do_apply(),   # ^A
+            12: lambda _: self._view_log(),   # ^L
+            17: lambda _: self._quit(),       # ^Q
+        })
+
         self._switch(0)
+
+    def _next_tab(self):
+        nxt = (self._current_page + 1) % len(PAGE_NAMES)
+        self._switch(nxt)
+        self.editw = nxt  # focus the nav button for the new page
 
     # ---- header ----
 
